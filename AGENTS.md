@@ -14,6 +14,8 @@
 
 ## 运行与工作流
 
+- 本地是 git 仓库（main，**无远程、从未推送**，用户 2026-09-29 决定暂不开源）；data/、dist*、node_modules、.zcode 已在 .gitignore，*.bat 经 .gitattributes 锁 CRLF。改动无需提交仪式，文档纪律照旧以 CHANGELOG/AGENTS 为准
+
 - `npm run dev` = 数据服务(9100) + Vite(5173)；`npm run build` 后 `npm start` 单进程直出 dist
 - **改前端必须 `npm run build`**（服务托管 dist 产物）；改 server/ 需重启服务
 - 端口固定 9100/9101：本机 5173/5174 被 Hyper-V 保留段拦截（EACCES）

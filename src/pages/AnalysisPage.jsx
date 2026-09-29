@@ -9,7 +9,7 @@ import {
   heroCounterScene, heroCounteredByScene, comboCounterScene,
   TRIO_DEFS, trioComboStats,
   globalComboStats, globalTrioStats, globalFiveStats,
-  groupByMonth, heroShiftRows, comboShiftRows,
+  heroShiftRows, comboShiftRows,
   groupByRound, ROUND_DEFS,
   allPlayerStats, allTeamStats, afterLossSideStats,
 } from '../analysis/compute.js';
@@ -1390,38 +1390,6 @@ function EventTab({ games, allGames, heroesById }) {
     return [...m.values()];
   }, [games]);
 
-  // ---- 同赛事 · 时间推移 ----
-  const [trendEventId, setTrendEventId] = useState('');
-  const trendGames = useMemo(() => {
-    const ev = byEvent.find((e) => String(e.id) === trendEventId);
-    return (ev || byEvent[0])?.games || [];
-  }, [trendEventId, byEvent]);
-
-  const months = useMemo(
-    () => [...groupByMonth(trendGames).entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)),
-    [trendGames]
-  );
-  const [monthA, setMonthA] = useState('');
-  const [monthB, setMonthB] = useState('');
-  useEffect(() => {
-    const ks = months.map((m) => m[0]);
-    setMonthA(ks.length >= 2 ? ks[ks.length - 2] : ks[0] || '');
-    setMonthB(ks.length >= 2 ? ks[ks.length - 1] : '');
-  }, [months]);
-
-  const statsByMonth = useMemo(() => {
-    const m = new Map();
-    for (const [key, gs] of months) {
-      m.set(key, { stats: heroStats(gs), combos: globalComboStats(gs), games: gs.length });
-    }
-    return m;
-  }, [months]);
-
-  const A = statsByMonth.get(monthA);
-  const B = statsByMonth.get(monthB);
-  const heroShift = useMemo(() => (A && B ? heroShiftRows(A.stats, A.games, B.stats, B.games) : []), [A, B]);
-  const comboShift = useMemo(() => (A && B ? comboShiftRows(A.combos, A.games, B.combos, B.games) : []), [A, B]);
-
   // ---- 不同赛事对比 ----
   const eventSummaries = useMemo(() => byEvent.map((ev) => {
     const n = ev.games.length;
@@ -1464,40 +1432,6 @@ function EventTab({ games, allGames, heroesById }) {
 
   return (
     <>
-      <Section
-        title="同赛事 · 随时间/版本的推移"
-        extra={
-          <select value={trendEventId} onChange={(e) => setTrendEventId(e.target.value)}>
-            {byEvent.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}</option>)}
-          </select>
-        }
-      >
-        <div className="filter-inline" style={{ marginBottom: 10 }}>
-          <span className="mini-note">各月样本：</span>
-          {months.map(([key, gs]) => (
-            <span className="stat-chip" key={key}>{key} · {gs.length} 局</span>
-          ))}
-        </div>
-        <div className="filter-inline" style={{ marginBottom: 10 }}>
-          <span className="filter-label">对比月份</span>
-          <select value={monthA} onChange={(e) => setMonthA(e.target.value)}>
-            {months.map(([key]) => <option key={key} value={key}>{key}</option>)}
-          </select>
-          <span className="filter-label">→</span>
-          <select value={monthB} onChange={(e) => setMonthB(e.target.value)}>
-            <option value="">（仅看 {monthA}）</option>
-            {months.map(([key]) => <option key={key} value={key}>{key}</option>)}
-          </select>
-        </div>
-
-        {!A ? <div className="empty-hint">该赛事暂无按月可分的数据</div> : (
-          <ShiftTables labelA={monthA || '—'} labelB={monthB || '—'} heroShift={heroShift} comboShift={comboShift} heroesById={heroesById} />
-        )}
-        <div className="mini-note">
-          Ban-Pick 率 = (Pick+Ban) ÷ 2×当月局数；组合出现率分母 = 当月局数。变化榜按两个月的差值绝对值排序，用于发现「某月突然变强/变弱」的版本信号；英雄需两个月 Pick+Ban 各 ≥3 次、组合各 ≥2 次才参与排名。
-        </div>
-      </Section>
-
       <RoundCompareSection games={games} allGames={allGames} heroesById={heroesById} />
 
       <Section title="不同赛事对比">
