@@ -3,6 +3,10 @@
 AGENTS.md 只描述**现状**，各功能的来龙去脉、变更日期与用户决策记录在本文件。
 需要考据"为什么是现在这样"时再读；新条目加在最上面。
 
+## 2026-09-29（三）
+
+- **开源上线：https://github.com/wbc23/kpl-global-bp**（用户恢复当日早些时候中止的上传计划）。流程：winget 安装 GitHub CLI → 设备码登录（账号 wbc23；SSH 22 端口被代理拦截不可用，走 HTTPS）→ `gh repo create --public --source --push` 一次完成建库+推送（main 分支，含初始提交与月度推移删除两次提交）。发布范围核验过：源码/文档/三个启动 bat 共 50 个文件，**data/ 数据库、dist*/node_modules/.zcode 不入库**；发布前做了密钥与隐私路径扫描（无命中）。新增 LICENSE（MIT，Wang Bochen）。AGENTS「本地 git 仓库」小节改写为开源现状（推送不在例行流程，用户提出再做）
+
 ## 2026-09-29（二）
 
 - **分析页·赛事分析：删除「同赛事 · 随时间/版本的推移」区块**（用户提出不要该部分）。EventTab 现仅剩「轮次对比」+「不同赛事对比」两区块；月度推移专属的状态/memo（trendEventId/months/statsByMonth/monthA·B 等）与 ShiftTables 的月度调用一并移除（ShiftTables 组件保留，轮次对比仍在用）。compute.js 的 groupByMonth 导出保留原处但已无调用方。README 模块表同步去掉"月度推移"；npm test 35 项通过，build:test 后 9101 浏览器实测两区块正常，用户确认后已 `npm run build` 同步生产（两环境产物哈希一致）
