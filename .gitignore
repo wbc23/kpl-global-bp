@@ -1,0 +1,17 @@
+# 依赖
+node_modules/
+
+# 构建产物（npm run build / build:test 重新生成）
+dist/
+dist-test/
+
+# 本地数据（数据库/备份/快照，不入库）
+data/
+
+# 本地工具工作区
+.zcode/
+
+# 日志与系统文件
+*.log
+.DS_Store
+Thumbs.db

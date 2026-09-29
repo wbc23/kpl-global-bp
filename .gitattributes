@@ -1,0 +1,2 @@
+# bat 必须保持 CRLF（中文 Windows cmd 行尾解析，见 AGENTS.md）
+*.bat text eol=crlf
