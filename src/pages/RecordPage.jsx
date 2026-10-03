@@ -428,6 +428,12 @@ function RecordForm({ meta, prefill, seriesList, onCancel, onStart, onMetaChange
     api.rosters(Number(eventId)).then(setRosters).catch(() => setRosters([]));
     api.eventTeams(Number(eventId)).then((ids) => setEventTeamIds(ids.length ? ids : null)).catch(() => setEventTeamIds(null));
   }, [eventId]);
+  // 切到有参赛名单的赛事后，已选战队若不在名单中则清掉（与 pickTeam 清残留同口径，避免旧赛事带过来的选择漏过校验）
+  useEffect(() => {
+    const stale = (id) => id && eventTeamIds && !eventTeamIds.includes(Number(id));
+    if (stale(team1Id)) { setTeam1Id(''); setRoster1(Array.from({ length: 5 }, () => '')); }
+    if (stale(team2Id)) { setTeam2Id(''); setRoster2(Array.from({ length: 5 }, () => '')); }
+  }, [eventTeamIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!meta) return <div className="panel empty-hint">加载基础数据…</div>;
 
@@ -439,6 +445,8 @@ function RecordForm({ meta, prefill, seriesList, onCancel, onStart, onMetaChange
     return required.filter((t) => !has.has(t.id));
   }, [meta, eventId, eventTeamIds, rosters]);
   const missingNames = rosterMissing.slice(0, 3).map((t) => t.name).join('、') + (rosterMissing.length > 3 ? ` 等 ${rosterMissing.length} 支` : '');
+  // 选队下拉只列本赛事参赛战队（未设置参赛战队时=全部战队）
+  const pickableTeams = eventTeamIds ? meta.teams.filter((t) => eventTeamIds.includes(t.id)) : meta.teams;
 
   const promptAdd = async () => {
     const input = window.prompt('输入新赛事名称，如：2026KPL夏季赛');
@@ -617,7 +625,7 @@ function RecordForm({ meta, prefill, seriesList, onCancel, onStart, onMetaChange
 
         <div className="setup-teams">
           <div className={`panel setup-team team-blue`}>
-            <TeamPicker teams={meta.teams} value={team1Id} onChange={(id) => pickTeam(1, id)} placeholder="搜索战队1（首局执蓝）…" />
+            <TeamPicker teams={pickableTeams} value={team1Id} onChange={(id) => pickTeam(1, id)} placeholder="搜索战队1（首局执蓝）…" />
             <RosterQuick
               list={bigRoster(1)}
               used={roster1.map((x) => x.trim())}
@@ -651,7 +659,7 @@ function RecordForm({ meta, prefill, seriesList, onCancel, onStart, onMetaChange
           </div>
           <div className="setup-vs">VS</div>
           <div className={`panel setup-team team-red`}>
-            <TeamPicker teams={meta.teams} value={team2Id} onChange={(id) => pickTeam(2, id)} placeholder="搜索战队2…" />
+            <TeamPicker teams={pickableTeams} value={team2Id} onChange={(id) => pickTeam(2, id)} placeholder="搜索战队2…" />
             <RosterQuick
               list={bigRoster(2)}
               used={roster2.map((x) => x.trim())}
