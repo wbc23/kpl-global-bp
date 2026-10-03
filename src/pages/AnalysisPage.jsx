@@ -1381,37 +1381,56 @@ function RoundCompareSection({ games, allGames, heroesById }) {
   );
 }
 function EventTab({ games, allGames, heroesById }) {
+  // 赛事分组基于全部数据（allGames）：不受上方筛选影响（默认筛选=当前赛事时仍能看到全部赛事的对比）。
+  // 赛事增多后全量平铺放不下也看不清，改为一次选两个赛事对比
   const byEvent = useMemo(() => {
     const m = new Map();
-    for (const g of games) {
+    for (const g of allGames) {
       if (!m.has(g.eventId)) m.set(g.eventId, { id: g.eventId, name: g.event, games: [] });
       m.get(g.eventId).games.push(g);
     }
     return [...m.values()];
-  }, [games]);
+  }, [allGames]);
+
+  // 各赛事按最近比赛日期排序（早 → 晚）：选择器选项顺序与默认值（最近的两个）的依据
+  const eventsByDate = useMemo(() => [...byEvent].sort((a, b) => {
+    const last = (ev) => ev.games.reduce((mx, g) => (g.date > mx ? g.date : mx), '');
+    return last(a).localeCompare(last(b)) || a.id - b.id;
+  }), [byEvent]);
+  const [pickA, setPickA] = useState('');
+  const [pickB, setPickB] = useState('');
+  const findEv = (v) => eventsByDate.find((e) => String(e.id) === v);
+  const effA = findEv(pickA)?.id ?? (eventsByDate[eventsByDate.length - 2] ?? eventsByDate[eventsByDate.length - 1])?.id;
+  const effB = findEv(pickB)?.id ?? eventsByDate[eventsByDate.length - 1]?.id;
+  // 只有一个赛事（或两边选了同一个）时去重为单赛事展示，列/区块随之减半
+  const selEvents = useMemo(() => {
+    const ids = [...new Set([effA, effB].filter((x) => x != null).map(String))];
+    return ids.map((id) => byEvent.find((e) => String(e.id) === id)).filter(Boolean);
+  }, [byEvent, effA, effB]);
 
   // ---- 不同赛事对比 ----
-  const eventSummaries = useMemo(() => byEvent.map((ev) => {
+  const eventSummaries = useMemo(() => selEvents.map((ev) => {
     const n = ev.games.length;
     const hs = [...heroStats(ev.games).values()];
     const bpOf = (s) => pct(s.picks + s.bans, n * 2);
-    const t0 = hs.filter((s) => s.picks + s.bans >= 5 && bpOf(s) >= 70)
+    const t0 = hs.filter((s) => s.picks + s.bans >= 5 && bpOf(s) >= 40)
       .sort((a, b) => bpOf(b) - bpOf(a)).slice(0, 6);
     const mustBan = hs.filter((s) => s.bans >= 3 && pct(s.bans, n * 2) >= 40)
       .sort((a, b) => b.bans - a.bans).slice(0, 6);
     const combos = [...globalComboStats(ev.games).values()].sort((a, b) => b.picks - a.picks).slice(0, 6);
     return { ...ev, t0, mustBan, combos };
-  }), [byEvent]);
+  }), [selEvents]);
 
   const compare = useMemo(() => {
-    const per = byEvent.map((ev) => {
+    const per = selEvents.map((ev) => {
       const n = ev.games.length;
-      const heroes = [...heroStats(ev.games).values()]
+      const stats = heroStats(ev.games);
+      const heroes = [...stats.values()]
         .filter((s) => s.picks + s.bans > 0)
         .map((s) => ({ ...s, bp: pct(s.picks + s.bans, n * 2), winRate: pct(s.pickWins, s.picks) }))
         .sort((a, b) => b.bp - a.bp)
         .slice(0, 10);
-      return { id: ev.id, name: ev.name, heroes };
+      return { id: ev.id, name: ev.name, heroes, stats, n };
     });
     const maxBp = new Map();
     for (const col of per) for (const h of col.heroes) maxBp.set(h.heroId, Math.max(maxBp.get(h.heroId) || 0, h.bp));
@@ -1419,28 +1438,52 @@ function EventTab({ games, allGames, heroesById }) {
     const rows = heroIds.map((heroId) => {
       const row = { heroId };
       for (const col of per) {
-        const h = col.heroes.find((x) => x.heroId === heroId);
-        row[`bp_${col.id}`] = h ? `${h.bp}%` : '—';
-        row[`wr_${col.id}`] = h && h.picks > 0 ? `${h.winRate}%` : '—';
+        // 行取各赛事 TOP10 并集，但单元格查全量统计显示真实 BP率/胜率——
+        // 此前不在 TOP10 一律显示「—」，夏洛特这类高频英雄会被误显为"该赛事未使用"
+        const s = col.stats.get(heroId);
+        const used = s && s.picks + s.bans > 0;
+        row[`bp_${col.id}`] = used ? `${pct(s.picks + s.bans, col.n * 2)}%` : '—';
+        row[`wr_${col.id}`] = s && s.picks > 0 ? `${pct(s.pickWins, s.picks)}%` : '—';
       }
       return row;
     });
     return { per, rows };
-  }, [byEvent]);
+  }, [selEvents]);
 
-  if (games.length === 0) return <div className="panel empty-hint">当前筛选下没有对局</div>;
+  // 本 tab 的不同赛事对比基于全量数据，仅在完全无数据时置空；筛选无结果时轮次区块自行提示
+  if (allGames.length === 0) return <div className="panel empty-hint">暂无任何对局数据</div>;
 
   return (
     <>
       <RoundCompareSection games={games} allGames={allGames} heroesById={heroesById} />
 
-      <Section title="不同赛事对比">
+      <Section
+        title="不同赛事对比"
+        extra={
+          <>
+            <span className="filter-label">对比</span>
+            <select value={String(effA ?? '')} onChange={(e) => setPickA(e.target.value)}>
+              {eventsByDate.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}（{ev.games.length} 局）</option>)}
+            </select>
+            {eventsByDate.length > 1 && (
+              <>
+                <span className="filter-label">→</span>
+                <select value={String(effB ?? '')} onChange={(e) => setPickB(e.target.value)}>
+                  {eventsByDate.map((ev) => (
+                    <option key={ev.id} value={ev.id} disabled={ev.id === effA}>{ev.name}（{ev.games.length} 局）</option>
+                  ))}
+                </select>
+              </>
+            )}
+          </>
+        }
+      >
         {eventSummaries.map((ev) => (
           <div className="event-summary" key={ev.id}>
             <div className="sub-title">{ev.name}（{ev.games.length} 局）</div>
             <div className="three-col">
               <div>
-                <div className="mini-note" title="Ban-Pick 率 ≥ 70%（Pick+Ban ≥ 5 次）视为版本 T0 级">T0 候选（Ban-Pick率≥70%）</div>
+                <div className="mini-note" title="Ban-Pick 率 ≥ 40%（Pick+Ban ≥ 5 次）视为版本 T0 级。BP 率上限为 50%：每局每英雄最多出场 1 次（被ban或被选二选一），分母为 2×局数">T0 候选（Ban-Pick率≥40%）</div>
                 {ev.t0.length === 0 ? <div className="empty-hint">暂无</div> : (
                   <div className="chip-list">
                     {ev.t0.map((s) => (
@@ -1523,7 +1566,7 @@ function EventTab({ games, allGames, heroesById }) {
             </tbody>
           </table>
         </div>
-        <div className="mini-note">列为各赛事 Ban-Pick 率 TOP10 英雄的并集（最多 15 名）；「—」表示该英雄在该赛事未出现或未进入 TOP10。</div>
+        <div className="mini-note">一次对比两个赛事（默认最近两个，可切换；只有一个赛事时单独展示）。行为所选赛事 Ban-Pick 率 TOP10 英雄的并集（最多 15 名）；单元格显示该英雄在该赛事的真实 BP率/胜率，「—」= 未在该赛事出场。本区块基于全部赛事数据，不受上方筛选影响。</div>
       </Section>
     </>
   );
