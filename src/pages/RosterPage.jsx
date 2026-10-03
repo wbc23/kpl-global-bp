@@ -281,6 +281,48 @@ function RosterEditor({ meta, eventId, teamId, initial, onDone }) {
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchText, setBatchText] = useState('');
   const [err, setErr] = useState('');
+  // 新登记时：预填该队在其他赛事登记过的名单（来源按"最近有比赛的赛事"优先，无比赛按创建较晚），
+  // 拉取完成前用户已动手输入则不覆盖，仅在提示条里提供手动带入
+  const [sources, setSources] = useState([]);
+  const [sourceId, setSourceId] = useState('');
+  const [prefilledFrom, setPrefilledFrom] = useState('');
+  useEffect(() => {
+    if (initial) return;
+    let alive = true;
+    (async () => {
+      try {
+        const others = meta.events.filter((e) => e.id !== eventId);
+        if (!others.length) return;
+        const [allSeries, ...rosterLists] = await Promise.all([
+          api.series(),
+          ...others.map((e) => api.rosters(e.id)),
+        ]);
+        const latestByEvent = new Map();
+        for (const s of allSeries) {
+          const cur = latestByEvent.get(s.eventId);
+          if (!cur || s.date > cur) latestByEvent.set(s.eventId, s.date);
+        }
+        const cands = others
+          .map((e, i) => {
+            const r = rosterLists[i].find((x) => x.teamId === teamId);
+            return r ? { eventId: e.id, eventName: e.name, players: r.players, latest: latestByEvent.get(e.id) ?? '' } : null;
+          })
+          .filter(Boolean)
+          .sort((a, b) => (b.latest || '').localeCompare(a.latest || '') || b.eventId - a.eventId);
+        if (!alive || !cands.length) return;
+        setSources(cands);
+        setSourceId(String(cands[0].eventId));
+        setRows((cur) => (cur.every((v) => !v.trim()) ? cands[0].players.slice() : cur));
+        setPrefilledFrom(cands[0].eventName);
+      } catch { /* 预填拉取失败不影响正常手输 */ }
+    })();
+    return () => { alive = false; };
+  }, [initial, meta, eventId, teamId]);
+
+  const applySource = () => {
+    const s = sources.find((x) => String(x.eventId) === sourceId);
+    if (s) { setRows(s.players.slice()); setPrefilledFrom(s.eventName); }
+  };
   const team = meta.teams.find((t) => t.id === teamId);
   const ev = meta.events.find((e) => e.id === eventId);
   if (!team || !ev) return null;
@@ -320,6 +362,19 @@ function RosterEditor({ meta, eventId, teamId, initial, onDone }) {
         <span className="panel-title">{ev.name} · {team.name} 大名单{initial ? '' : '（新登记）'}</span>
         {initial && <button className="btn btn-ghost btn-sm danger" onClick={remove}>删除名单</button>}
       </div>
+
+      {!initial && sources.length > 0 && (
+        <div className="setup-row">
+          {prefilledFrom
+            ? <span className="tag-done">已预填自「{prefilledFrom}」，核对转会/位置变动后保存</span>
+            : <span className="dim" style={{ fontSize: 12 }}>该队在其他赛事登记过名单，可带入后修改</span>}
+          <select value={sourceId} onChange={(e) => setSourceId(e.target.value)}>
+            {sources.map((s) => <option key={s.eventId} value={s.eventId}>{s.eventName}（{s.players.length} 人）</option>)}
+          </select>
+          <button className="btn btn-ghost btn-sm" onClick={applySource}>填入</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setRows(['']); setPrefilledFrom(''); }}>清空</button>
+        </div>
+      )}
 
       <div className="setup-row">
         <button className="btn btn-ghost btn-sm" onClick={() => setBatchOpen(!batchOpen)}>
