@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 import HeroAvatar from '../components/HeroAvatar.jsx';
 import { heroMatch } from '../data/heroSearch.js';
-import { LANE_BADGES } from '../data/constants.js';
+import { LANE_BADGES, DEFAULT_STAGES, CUSTOM_STAGE_ORDER } from '../data/constants.js';
 import {
   flattenGames, filterGames, heroStats, teamStats, comboStats,
   overviewStats, PAIR_DEFS, pct,
@@ -1319,28 +1319,34 @@ function ShiftTables({ labelA, labelB, heroShift, comboShift, floorShift = [], h
 
     <div style={{ marginTop: 12 }}>
       <div className="sub-title">英雄平均楼层变化 TOP（{labelA} → {labelB}）</div>
-      {floorShift.length === 0 ? <div className="empty-hint">样本不足（英雄需两组各 Pick ≥2 次）</div> : (
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead><tr><th>英雄</th><th>{labelA}</th><th>{labelB}</th><th>变化</th></tr></thead>
-            <tbody>
-              {floorShift.map((r) => (
-                <tr key={r.heroId}>
-                  <td><HeroName heroesById={heroesById} id={r.heroId} /></td>
-                  <td className="num">{r.avgA} 楼（{r.picksA} 次）</td>
-                  <td className="num">{r.avgB} 楼（{r.picksB} 次）</td>
-                  <td className={`num ${r.diff > 0 ? 'delta-up' : 'delta-down'}`}
-                    title={r.diff < 0 ? '平均楼层下降 = 更早被选（向 1 楼移动）' : '平均楼层上升 = 更晚被选'}>
-                    {r.diff === 0 ? '±0' : `${r.diff > 0 ? '▲' : '▼'} ${Math.abs(r.diff)}`}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <FloorShiftTable rows={floorShift} labelA={labelA} labelB={labelB} heroesById={heroesById} />
     </div>
     </>
+  );
+}
+
+/** 英雄平均楼层变化表（轮次/赛段对比与不同赛事对比共用），行数据来自 floorShiftRows */
+function FloorShiftTable({ rows, labelA, labelB, heroesById }) {
+  if (rows.length === 0) return <div className="empty-hint">样本不足（英雄需两组各 Pick ≥2 次）</div>;
+  return (
+    <div className="table-wrap">
+      <table className="data-table">
+        <thead><tr><th>英雄</th><th>{labelA}</th><th>{labelB}</th><th>变化</th></tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.heroId}>
+              <td><HeroName heroesById={heroesById} id={r.heroId} /></td>
+              <td className="num">{r.avgA} 楼（{r.picksA} 次）</td>
+              <td className="num">{r.avgB} 楼（{r.picksB} 次）</td>
+              <td className={`num ${r.diff > 0 ? 'delta-up' : 'delta-down'}`}
+                title={r.diff < 0 ? '平均楼层下降 = 更早被选（向 1 楼移动）' : '平均楼层上升 = 更晚被选'}>
+                {r.diff === 0 ? '±0' : `${r.diff > 0 ? '▲' : '▼'} ${Math.abs(r.diff)}`}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -1444,14 +1450,52 @@ function EventTab({ games, allGames, heroesById }) {
   }), [byEvent]);
   const [pickA, setPickA] = useState('');
   const [pickB, setPickB] = useState('');
+  const [stageA, setStageA] = useState(''); // '' = 该赛事全部赛段
+  const [stageB, setStageB] = useState('');
   const findEv = (v) => eventsByDate.find((e) => String(e.id) === v);
   const effA = findEv(pickA)?.id ?? (eventsByDate[eventsByDate.length - 2] ?? eventsByDate[eventsByDate.length - 1])?.id;
   const effB = findEv(pickB)?.id ?? eventsByDate[eventsByDate.length - 1]?.id;
-  // 只有一个赛事（或两边选了同一个）时去重为单赛事展示，列/区块随之减半
+
+  // 每个赛事的赛段分组（供对比范围细分，如 夏季赛·季后赛 vs 年度总决赛·擂台赛）；
+  // 排序：默认赛段在前（常规赛/季后赛），特殊赛段按固有赛制顺序（擂台→突围→淘汰）
+  const stageGroupsByEvent = useMemo(() => {
+    const m = new Map(); // eventId -> Map(stage -> games[])
+    for (const g of allGames) {
+      const st = String(g.stage || '');
+      if (!st) continue; // 空赛段只在"全部赛段"口径下可见
+      if (!m.has(g.eventId)) m.set(g.eventId, new Map());
+      const sm = m.get(g.eventId);
+      if (!sm.has(st)) sm.set(st, []);
+      sm.get(st).push(g);
+    }
+    const orderOf = (s) => {
+      const d = DEFAULT_STAGES.indexOf(s);
+      if (d !== -1) return d;
+      const c = CUSTOM_STAGE_ORDER.indexOf(s);
+      return c === -1 ? 90 + s.charCodeAt(0) % 10 : DEFAULT_STAGES.length + c;
+    };
+    for (const [eid, sm] of m) m.set(eid, new Map([...sm.entries()].sort((a, b) => orderOf(a[0]) - orderOf(b[0]))));
+    return m;
+  }, [allGames]);
+  const stagesOf = (eid) => [...(stageGroupsByEvent.get(eid)?.entries() ?? [])];
+  // B 侧只在多赛事时可选（单赛事时隐藏 B 行）；赛段值不在该赛事列表时回退全部
+  const effStageA = stagesOf(effA).some(([s]) => s === stageA) ? stageA : '';
+  const effStageB = eventsByDate.length > 1 && stagesOf(effB).some(([s]) => s === stageB) ? stageB : '';
+
+  // 构建两侧对比范围（side）：同一赛事的不同赛段也可互比（如 常规赛 vs 季后赛）；
+  // 两侧完全相同（赛事+赛段）时去重为单侧展示
+  const sideOf = (eid, stage) => {
+    const ev = byEvent.find((e) => e.id === eid);
+    if (!ev) return null;
+    const games = stage ? (stageGroupsByEvent.get(eid)?.get(stage) ?? []) : ev.games;
+    return { key: `${eid}:${stage || 'all'}`, name: stage ? `${ev.name}·${stage}` : ev.name, games };
+  };
   const selEvents = useMemo(() => {
-    const ids = [...new Set([effA, effB].filter((x) => x != null).map(String))];
-    return ids.map((id) => byEvent.find((e) => String(e.id) === id)).filter(Boolean);
-  }, [byEvent, effA, effB]);
+    const seen = new Set();
+    return [sideOf(effA, effStageA), sideOf(effB, effStageB)]
+      .filter(Boolean)
+      .filter((s) => (seen.has(s.key) ? false : (seen.add(s.key), true)));
+  }, [byEvent, stageGroupsByEvent, effA, effB, effStageA, effStageB]);
 
   // ---- 不同赛事对比 ----
   const eventSummaries = useMemo(() => selEvents.map((ev) => {
@@ -1475,25 +1519,41 @@ function EventTab({ games, allGames, heroesById }) {
         .map((s) => ({ ...s, bp: pct(s.picks + s.bans, n * 2), winRate: pct(s.pickWins, s.picks) }))
         .sort((a, b) => b.bp - a.bp)
         .slice(0, 10);
-      return { id: ev.id, name: ev.name, heroes, stats, n };
+      return { id: ev.key, name: ev.name, heroes, stats, n };
     });
-    const maxBp = new Map();
-    for (const col of per) for (const h of col.heroes) maxBp.set(h.heroId, Math.max(maxBp.get(h.heroId) || 0, h.bp));
-    const heroIds = [...maxBp.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([id]) => id);
-    const rows = heroIds.map((heroId) => {
+    const mkRow = (heroId) => {
       const row = { heroId };
       for (const col of per) {
-        // 行取各赛事 TOP10 并集，但单元格查全量统计显示真实 BP率/胜率——
-        // 此前不在 TOP10 一律显示「—」，夏洛特这类高频英雄会被误显为"该赛事未使用"
+        // 单元格查全量统计显示真实 BP率/胜率（存数值，'—' 在渲染时给）
         const s = col.stats.get(heroId);
         const used = s && s.picks + s.bans > 0;
-        row[`bp_${col.id}`] = used ? `${pct(s.picks + s.bans, col.n * 2)}%` : '—';
-        row[`wr_${col.id}`] = s && s.picks > 0 ? `${pct(s.pickWins, s.picks)}%` : '—';
+        row[`bp_${col.id}`] = used ? pct(s.picks + s.bans, col.n * 2) : null;
+        row[`wr_${col.id}`] = s && s.picks > 0 ? pct(s.pickWins, s.picks) : null;
       }
       return row;
-    });
+    };
+    let rows;
+    if (per.length === 2) {
+      // 两侧各出场（Pick+Ban）≥3 次的英雄，按 BP率 变化幅度排序（用户要看变化，不再按 TOP10 并集）
+      const [X, Y] = per;
+      const cand = [];
+      for (const [heroId, sY] of Y.stats) {
+        const sX = X.stats.get(heroId);
+        if (!sX || sX.picks + sX.bans < 3 || sY.picks + sY.bans < 3) continue;
+        cand.push({ heroId, diff: pct(sY.picks + sY.bans, Y.n * 2) - pct(sX.picks + sX.bans, X.n * 2) });
+      }
+      rows = cand.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff)).slice(0, 15).map((c) => mkRow(c.heroId));
+    } else {
+      // 单侧展示：按 BP率 TOP10（无可比变化）
+      rows = per[0].heroes.map((h) => mkRow(h.heroId));
+    }
     return { per, rows };
   }, [selEvents]);
+
+  // 跨赛事楼层变化：所选 A/B 两赛事各 Pick≥2 次的英雄平均楼层对比（per 顺序与 selEvents 一致）
+  const floorShift = useMemo(() => (
+    compare.per.length === 2 ? floorShiftRows(compare.per[0].stats, compare.per[1].stats) : []
+  ), [compare]);
 
   // 本 tab 的不同赛事对比基于全量数据，仅在完全无数据时置空；筛选无结果时轮次区块自行提示
   if (allGames.length === 0) return <div className="panel empty-hint">暂无任何对局数据</div>;
@@ -1507,16 +1567,22 @@ function EventTab({ games, allGames, heroesById }) {
         extra={
           <>
             <span className="filter-label">对比</span>
-            <select value={String(effA ?? '')} onChange={(e) => setPickA(e.target.value)}>
+            <select value={String(effA ?? '')} onChange={(e) => { setPickA(e.target.value); setStageA(''); }}>
               {eventsByDate.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}（{ev.games.length} 局）</option>)}
+            </select>
+            <select value={effStageA} onChange={(e) => setStageA(e.target.value)} title="可选：只对比该赛事的某个赛段">
+              <option value="">全部赛段</option>
+              {stagesOf(effA).map(([st, gs]) => <option key={st} value={st}>{st}（{gs.length} 局）</option>)}
             </select>
             {eventsByDate.length > 1 && (
               <>
                 <span className="filter-label">→</span>
-                <select value={String(effB ?? '')} onChange={(e) => setPickB(e.target.value)}>
-                  {eventsByDate.map((ev) => (
-                    <option key={ev.id} value={ev.id} disabled={ev.id === effA}>{ev.name}（{ev.games.length} 局）</option>
-                  ))}
+                <select value={String(effB ?? '')} onChange={(e) => { setPickB(e.target.value); setStageB(''); }}>
+                  {eventsByDate.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}（{ev.games.length} 局）</option>)}
+                </select>
+                <select value={effStageB} onChange={(e) => setStageB(e.target.value)} title="可选：只对比该赛事的某个赛段">
+                  <option value="">全部赛段</option>
+                  {stagesOf(effB).map(([st, gs]) => <option key={st} value={st}>{st}（{gs.length} 局）</option>)}
                 </select>
               </>
             )}
@@ -1524,7 +1590,7 @@ function EventTab({ games, allGames, heroesById }) {
         }
       >
         {eventSummaries.map((ev) => (
-          <div className="event-summary" key={ev.id}>
+          <div className="event-summary" key={ev.key}>
             <div className="sub-title">{ev.name}（{ev.games.length} 局）</div>
             <div className="three-col">
               <div>
@@ -1597,21 +1663,44 @@ function EventTab({ games, allGames, heroesById }) {
               </tr>
             </thead>
             <tbody>
-              {compare.rows.map((r) => (
-                <tr key={r.heroId}>
-                  <td><HeroName heroesById={heroesById} id={r.heroId} /></td>
-                  {compare.per.map((col) => (
-                    <React.Fragment key={col.id}>
-                      <td className="num blue-text">{r[`bp_${col.id}`]}</td>
-                      <td className="num">{r[`wr_${col.id}`]}</td>
-                    </React.Fragment>
-                  ))}
-                </tr>
-              ))}
+              {compare.rows.map((r) => {
+                const aCol = compare.per[0];
+                const bCol = compare.per[compare.per.length - 1]; // B 赛事列：附与 A 的差值箭头
+                const cell = (v) => (v == null ? '—' : `${v}%`);
+                const delta = (b, a) => {
+                  if (b == null || a == null || b === a) return null;
+                  const d = Math.round((b - a) * 10) / 10;
+                  return <span className={d > 0 ? 'delta-up' : 'delta-down'} style={{ marginLeft: 4 }}>{d > 0 ? '▲' : '▼'}{Math.abs(d)}</span>;
+                };
+                const isB = compare.per.length === 2 && bCol;
+                return (
+                  <tr key={r.heroId}>
+                    <td><HeroName heroesById={heroesById} id={r.heroId} /></td>
+                    {compare.per.map((col) => (
+                      <React.Fragment key={col.id}>
+                        <td className="num blue-text">
+                          {cell(r[`bp_${col.id}`])}
+                          {isB && col.id === bCol.id && delta(r[`bp_${bCol.id}`], r[`bp_${aCol.id}`])}
+                        </td>
+                        <td className="num">
+                          {cell(r[`wr_${col.id}`])}
+                          {isB && col.id === bCol.id && delta(r[`wr_${bCol.id}`], r[`wr_${aCol.id}`])}
+                        </td>
+                      </React.Fragment>
+                    ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
-        <div className="mini-note">一次对比两个赛事（默认最近两个，可切换；只有一个赛事时单独展示）。行为所选赛事 Ban-Pick 率 TOP10 英雄的并集（最多 15 名）；单元格显示该英雄在该赛事的真实 BP率/胜率，「—」= 未在该赛事出场。本区块基于全部赛事数据，不受上方筛选影响。</div>
+        {compare.per.length === 2 && (
+          <>
+            <div className="sub-title" style={{ marginTop: 14 }}>英雄平均楼层变化 TOP（{compare.per[0].name} → {compare.per[1].name}）</div>
+            <FloorShiftTable rows={floorShift} labelA={compare.per[0].name} labelB={compare.per[1].name} heroesById={heroesById} />
+          </>
+        )}
+        <div className="mini-note">一次对比两个范围（默认最近两个赛事的全部赛段，可细分到具体赛段，如 夏季赛·季后赛 vs 年度总决赛·擂台赛；同赛事不同赛段也可互比）。表行为两侧各出场（Pick+Ban）≥3 次的英雄，按 BP率 变化幅度排序（最多 15 名）；单元格显示该英雄在该侧的真实 BP率/胜率，「—」= 未出场。楼层变化表按两侧各 Pick ≥2 次的英雄、以平均楼层差排序（▼=右侧更早被选）；右侧列附与左侧的差值箭头（▲上升 ▼下降）。本区块基于全部赛事数据，不受上方筛选影响。</div>
       </Section>
     </>
   );
