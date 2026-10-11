@@ -1332,11 +1332,16 @@ function RoundCompareSection({ games, allGames, heroesById }) {
   // 从全量数据发现、按值直接分组，动态并入选项与预设
   const defs = useMemo(() => roundDefs(allGames), [allGames]);
   const customs = useMemo(() => defs.filter((d) => d.custom), [defs]);
-  const presets = useMemo(() => [
-    ...ROUND_PRESETS,
-    ...customs.slice(0, -1).map((d, i) => ({ label: `${d.label} ↔ ${customs[i + 1].label}`, a: d.key, b: customs[i + 1].key })),
-  ], [customs]);
   const groups = useMemo(() => groupByRound(games, allGames), [games, allGames]);
+  // 预设按钮只在两端分组都有数据时显示——按当前赛事范围过滤，
+  // 年度总决赛下不会出现"第一轮↔第二轮"这类无关预设，某赛段未开打时其预设也不显示
+  const presets = useMemo(() => {
+    const has = (k) => groups.get(k)?.length > 0;
+    return [
+      ...ROUND_PRESETS,
+      ...customs.slice(0, -1).map((d, i) => ({ label: `${d.label} ↔ ${customs[i + 1].label}`, a: d.key, b: customs[i + 1].key })),
+    ].filter((p) => has(p.a) && has(p.b));
+  }, [customs, groups]);
   const avail = useMemo(() => defs.filter((d) => groups.get(d.key).length > 0), [defs, groups]);
   const keyList = avail.map((d) => d.key);
   const [roundA, setRoundA] = useState('');
@@ -1354,14 +1359,18 @@ function RoundCompareSection({ games, allGames, heroesById }) {
   const comboShift = useMemo(() => (A.n > 0 && B.n > 0 ? comboShiftRows(A.combos, A.n, B.combos, B.n) : []), [A, B]);
 
   return (
-    <Section title={customs.length
-      ? `轮次 / 赛段对比（常规赛轮次 ↔ 季后赛 ↔ ${customs.map((d) => d.label).join(' / ')}）`
-      : '轮次对比（常规赛第一轮/第二轮/第三轮 ↔ 季后赛）'}>
-      <div className="filter-inline" style={{ marginBottom: 10 }}>
-        {presets.map((p) => (
-          <button key={p.label} className="btn btn-ghost btn-sm" onClick={() => { setRoundA(p.a); setRoundB(p.b); }}>{p.label}</button>
-        ))}
-      </div>
+    <Section
+      title={customs.length
+        ? `轮次 / 赛段对比（常规赛轮次 ↔ 季后赛 ↔ ${customs.map((d) => d.label).join(' / ')}）`
+        : '轮次对比（常规赛第一轮/第二轮/第三轮 ↔ 季后赛）'}
+    >
+      {presets.length > 0 && (
+        <div className="filter-inline" style={{ marginBottom: 10 }}>
+          {presets.map((p) => (
+            <button key={p.label} className="btn btn-ghost btn-sm" onClick={() => { setRoundA(p.a); setRoundB(p.b); }}>{p.label}</button>
+          ))}
+        </div>
+      )}
       <div className="filter-inline" style={{ marginBottom: 10 }}>
         <span className="filter-label">对比</span>
         <select value={effA} onChange={(e) => setRoundA(e.target.value)}>
