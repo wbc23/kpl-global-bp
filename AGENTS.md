@@ -22,7 +22,7 @@
 - **测试环境**：9101 / `data/kpl-test.db` / dist-test，与生产完全隔离，页面红「测试环境」徽标。`npm run build:test` + `npm run start:test`（`--reset` 清空测试库）或 `启动测试环境.bat`；server 支持 PORT/DB_PATH/DIST_DIR 环境变量，快照按库名前缀隔离（kpl-test-*）。**工作流：改动 → build:test → 9101 验证 → 用户确认 → 同步生产（前端 `npm run build`；改 server 需重启生产服务）**
 - 生产→测试数据复制：`npm run copy:test`（sqlite 在线备份；需先关测试服务，生产可运行中）
 - 数据库 `data/kpl.db`；服务启动自动快照到 `data/backups/`（保留 14 份）
-- `npm test`：纯函数回归测试（BP 校验/轮次/大场胜负/组合统计/阵容 null 语义，覆盖历次修复的回归场景）；改 BP 规则、录入校验或分析口径后必跑，新增修复请补用例
+- `npm test`：纯函数回归测试（BP 校验/轮次与赛段分组/大场胜负/组合统计与出现率变化/楼层变化/阵容 null 语义/英雄搜索，覆盖历次修复的回归场景）；改 BP 规则、录入校验或分析口径后必跑，新增修复请补用例
 - **Git Bash 里 curl 发中文会 GBK 乱码**：中文数据操作一律用页面 fetch 或 node 脚本
 - 后台 Bash 起的服务用 TaskStop 停不干净（npm 的 node 子进程残留占端口）：先 `netstat -ano | grep :9101` 找 PID `taskkill //F //PID <pid>`
 - **bat 文件必须 GBK(ANSI) 编码 + CRLF**：Write 工具默认 UTF-8+LF 会被中文 Windows 的 cmd 按 GBK 解析、行尾吞换行导致相邻行粘连执行；转换用 PowerShell ReadAllText(UTF8)→WriteAllText(GetEncoding(936))。三个启动 bat 均已是该编码

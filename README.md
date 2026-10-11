@@ -1,6 +1,7 @@
 # KPL BP 数据平台
 
-从「全局 BP 模拟器」扩展而来的王者荣耀 Ban/Pick 数据平台，包含五个模块：
+从「全局 BP 模拟器」扩展而来的王者荣耀 Ban/Pick 数据平台，包含五个模块。
+开源仓库：https://github.com/wbc23/kpl-global-bp
 
 | 模块 | 功能 |
 | --- | --- |
