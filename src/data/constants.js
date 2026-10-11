@@ -20,3 +20,21 @@ export const LANE_BADGES = [
 export function sideName(state, side) {
   return state[side]?.name || SIDE[side].label;
 }
+
+/** 赛段体系：不同赛事赛制不同（录入表单与轮次分组共用）。
+ *  默认（春季赛/夏季赛等常规赛季）= 常规赛 / 季后赛；
+ *  赛事名含「总决赛」= 擂台赛 / 突围赛 / 淘汰赛（年度总决赛赛制）。
+ *  以后出现新赛制（如挑战者杯）在 STAGE_SCHEMES 加一行即可；
+ *  分析页对非默认赛段自动按赛段值直接分组（见 compute.js customStageDefs） */
+export const DEFAULT_STAGES = ['常规赛', '季后赛'];
+const STAGE_SCHEMES = [
+  { match: /总决赛/, stages: ['擂台赛', '突围赛', '淘汰赛'] },
+];
+export function stagesForEvent(eventName) {
+  const hit = STAGE_SCHEMES.find((s) => s.match.test(String(eventName || '')));
+  return hit ? hit.stages : DEFAULT_STAGES;
+}
+
+/** 所有特殊赛段的固有赛制顺序（擂台赛→突围赛→淘汰赛）展开成一维表，
+ *  供分析页对非默认赛段排序（同日期系列赛无法按日期分先后时以此为准） */
+export const CUSTOM_STAGE_ORDER = STAGE_SCHEMES.flatMap((s) => s.stages);

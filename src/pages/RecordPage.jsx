@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useReducer, useState } from 'react';
 import { api } from '../api.js';
 import { useEscape } from '../app.js';
-import { DEFAULT_PLAYERS, LANE_BADGES, SIDE } from '../data/constants.js';
+import { DEFAULT_PLAYERS, LANE_BADGES, SIDE, stagesForEvent } from '../data/constants.js';
 import { getFlow, winsNeeded } from '../bp/rules.js';
 import { createRecording, createEditRecording, createContinueRecording, recordingReducer, toViewState, teamWins, curRosterOf, rosterLockConflicts } from '../record/recording.js';
 import { blueFlipConflicts, editSaveConflicts } from '../record/checks.js';
@@ -10,7 +10,6 @@ import DraftCenter from '../components/DraftCenter.jsx';
 import HeroAvatar from '../components/HeroAvatar.jsx';
 import TeamPicker from '../components/TeamPicker.jsx';
 
-const STAGE_PRESETS = ['常规赛', '季后赛'];
 // 新建录入的记忆键：上次使用的赛事/赛段/日期/赛制
 const PREFS_KEY = 'kpl-bp-record-prefs';
 function loadPrefs() {
@@ -338,11 +337,17 @@ function SeriesEditModal({ meta, series, onDone }) {
   const [date, setDate] = useState(series.date);
   const [note, setNote] = useState(series.note || '');
   const [err, setErr] = useState('');
+  // 赛段选项按赛事赛制切换（年度总决赛=擂台赛/突围赛/淘汰赛），当前值非法时回退首个
+  const stageOptions = useMemo(
+    () => stagesForEvent(meta?.events.find((e) => e.id === Number(eventId))?.name),
+    [meta, eventId]
+  );
+  const effStage = stageOptions.includes(stage) ? stage : stageOptions[0];
 
   if (!meta) return null;
   const save = async () => {
     try {
-      await api.updateSeries(series.id, { eventId: Number(eventId), stage, date, note });
+      await api.updateSeries(series.id, { eventId: Number(eventId), stage: effStage, date, note });
       onDone();
     } catch (e) { setErr(e.message); }
   };
@@ -366,8 +371,8 @@ function SeriesEditModal({ meta, series, onDone }) {
             {meta.events.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
           <span className="setup-label">赛段</span>
-          <select value={stage} onChange={(e) => setStage(e.target.value)}>
-            {STAGE_PRESETS.map((s) => <option key={s}>{s}</option>)}
+          <select value={effStage} onChange={(e) => setStage(e.target.value)}>
+            {stageOptions.map((s) => <option key={s}>{s}</option>)}
           </select>
           <span className="setup-label">日期</span>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -434,6 +439,13 @@ function RecordForm({ meta, prefill, seriesList, onCancel, onStart, onMetaChange
     if (stale(team1Id)) { setTeam1Id(''); setRoster1(Array.from({ length: 5 }, () => '')); }
     if (stale(team2Id)) { setTeam2Id(''); setRoster2(Array.from({ length: 5 }, () => '')); }
   }, [eventTeamIds]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 赛段选项按赛事赛制切换（年度总决赛=擂台赛/突围赛/淘汰赛）；当前值非法（切换赛事/带入旧偏好）回退首个
+  const stageOptions = useMemo(
+    () => stagesForEvent(meta?.events.find((e) => e.id === Number(eventId))?.name),
+    [meta, eventId]
+  );
+  const effStage = stageOptions.includes(stage) ? stage : stageOptions[0];
 
   if (!meta) return <div className="panel empty-hint">加载基础数据…</div>;
 
@@ -554,9 +566,9 @@ function RecordForm({ meta, prefill, seriesList, onCancel, onStart, onMetaChange
     // 同队重名会让选手归属/整队锁定全部错位（indexOf 恒命中首个槽位），前后端一致拦截
     if (new Set(roster1.map((x) => x.trim())).size !== 5) return setErr(`${t1.name} 存在重复选手`);
     if (new Set(roster2.map((x) => x.trim())).size !== 5) return setErr(`${t2.name} 存在重复选手`);
-    savePrefs({ eventId: ev.id, stage, date, bo });
+    savePrefs({ eventId: ev.id, stage: effStage, date, bo });
     onStart(createRecording({
-      eventId: ev.id, stage, date, bo,
+      eventId: ev.id, stage: effStage, date, bo,
       team1: { id: t1.id, name: t1.name }, team2: { id: t2.id, name: t2.name },
       roster1: roster1.map((x) => x.trim()), roster2: roster2.map((x) => x.trim()),
       note: note.trim(),
@@ -601,8 +613,8 @@ function RecordForm({ meta, prefill, seriesList, onCancel, onStart, onMetaChange
 
         <div className="setup-row">
           <span className="setup-label">赛段</span>
-          <select value={stage} onChange={(e) => setStage(e.target.value)}>
-            {STAGE_PRESETS.map((s) => <option key={s}>{s}</option>)}
+          <select value={effStage} onChange={(e) => setStage(e.target.value)}>
+            {stageOptions.map((s) => <option key={s}>{s}</option>)}
           </select>
           <span className="setup-label">日期</span>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />

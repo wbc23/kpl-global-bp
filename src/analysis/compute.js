@@ -359,6 +359,8 @@ export function globalComboStats(games) {
 
 /* ================= 轮次分组（赛事分析页，按系列赛备注识别，区间语义） ================= */
 
+import { DEFAULT_STAGES, CUSTOM_STAGE_ORDER } from '../data/constants.js';
+
 /** 轮次分组定义。regular = r1+r2+r3 合计 */
 export const ROUND_DEFS = [
   { key: 'r1', label: '第一轮' },
@@ -368,6 +370,42 @@ export const ROUND_DEFS = [
   { key: 'po', label: '季后赛（含总决赛）' },
   { key: 'other', label: '未标注轮次' },
 ];
+
+/** 非默认赛段（如年度总决赛的 擂台赛/突围赛/淘汰赛）：每个值自成一组、按赛段直接归属，
+ *  不走备注区间逻辑。从**全量**数据发现（被筛选掉的赛段也要出现在选择器里）。
+ *  排序：先按固有赛制顺序（CUSTOM_STAGE_ORDER，擂台→突围→淘汰），未知赛段按首场日期排在其后
+ *  （同一赛事各赛段系列赛常同日多场，仅按日期无法分先后） */
+export function customStageDefs(allGames) {
+  const firstDate = new Map();
+  for (const g of allGames) {
+    const s = String(g.stage || '');
+    if (!s || DEFAULT_STAGES.includes(s)) continue;
+    const d = String(g.date || '');
+    if (!firstDate.has(s) || d < firstDate.get(s)) firstDate.set(s, d);
+  }
+  const orderIdx = (s) => {
+    const i = CUSTOM_STAGE_ORDER.indexOf(s);
+    return i === -1 ? CUSTOM_STAGE_ORDER.length : i;
+  };
+  return [...firstDate.entries()]
+    .sort((a, b) => orderIdx(a[0]) - orderIdx(b[0]) || a[1].localeCompare(b[1]) || a[0].localeCompare(b[0]))
+    .map(([s]) => ({ key: s, label: s, custom: true }));
+}
+
+/** 轮次/赛段组定义（静态轮次 + 数据中出现的非默认赛段；未标注轮次恒排最后） */
+export function roundDefs(allGames) {
+  const customs = customStageDefs(allGames);
+  return [
+    ...ROUND_DEFS.filter((d) => d.key !== 'other'),
+    ...customs,
+    ...ROUND_DEFS.filter((d) => d.key === 'other'),
+  ];
+}
+
+const customStageOf = (stage) => {
+  const s = String(stage || '');
+  return s && !DEFAULT_STAGES.includes(s) ? s : null;
+};
 
 /** 轮次边界识别：备注含「第x轮」标记该轮起点（中文数字与阿拉伯数字均可：第一轮/第1轮）；
  *  备注含「季后赛/总决赛」或赛段=季后赛标记季后赛起点 */
@@ -399,16 +437,24 @@ export function seriesRoundKeys(allGames) {
   for (const list of byEvent.values()) {
     list.sort((a, b) =>
       String(a[1].date).localeCompare(String(b[1].date)) || a[0] - b[0]);
+    // 非默认赛段（擂台赛等）按值直接归属，不参与备注边界/区间
+    const direct = new Map();
+    for (const [sid, s] of list) {
+      const c = customStageOf(s.stage);
+      if (c) direct.set(sid, c);
+    }
     // 每个轮次只取首个标记场作为边界，按时间排序
     const bounds = [];
     const seen = new Set();
     list.forEach(([sid, s], pos) => {
+      if (direct.has(sid)) return;
       const k = roundMarker(s.note, s.stage);
       if (k && !seen.has(k)) { seen.add(k); bounds.push({ pos, key: k }); }
     });
     // 每场系列赛的轮次 = 其位置之前（含）最近的边界；首个边界之前 → other
     let bi = -1;
     list.forEach(([sid], pos) => {
+      if (direct.has(sid)) { keyAt.set(sid, direct.get(sid)); return; }
       while (bi + 1 < bounds.length && bounds[bi + 1].pos <= pos) bi += 1;
       keyAt.set(sid, bi >= 0 ? bounds[bi].key : 'other');
     });
@@ -422,7 +468,7 @@ export function seriesRoundKeys(allGames) {
 export function groupByRound(games, allGames = games) {
   const keyAt = seriesRoundKeys(allGames);
   const m = new Map();
-  for (const r of ROUND_DEFS) m.set(r.key, []);
+  for (const r of roundDefs(allGames)) m.set(r.key, []);
   for (const g of games) {
     const k = keyAt.get(g.seriesId) || 'other';
     m.get(k).push(g);

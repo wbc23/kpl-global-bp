@@ -10,7 +10,7 @@ import {
   TRIO_DEFS, trioComboStats,
   globalComboStats, globalTrioStats, globalFiveStats,
   heroShiftRows, comboShiftRows,
-  groupByRound, ROUND_DEFS,
+  groupByRound, ROUND_DEFS, roundDefs,
   allPlayerStats, allTeamStats, afterLossSideStats,
 } from '../analysis/compute.js';
 
@@ -1328,13 +1328,20 @@ const ROUND_PRESETS = [
 
 function RoundCompareSection({ games, allGames, heroesById }) {
   // 轮次归属在完整数据上计算（allGames）：边界场被上方筛选掉也不影响归属；
-  // 各赛事独立判定，不跨赛事继承
+  // 各赛事独立判定，不跨赛事继承。非默认赛段（年度总决赛的擂台赛/突围赛/淘汰赛）
+  // 从全量数据发现、按值直接分组，动态并入选项与预设
+  const defs = useMemo(() => roundDefs(allGames), [allGames]);
+  const customs = useMemo(() => defs.filter((d) => d.custom), [defs]);
+  const presets = useMemo(() => [
+    ...ROUND_PRESETS,
+    ...customs.slice(0, -1).map((d, i) => ({ label: `${d.label} ↔ ${customs[i + 1].label}`, a: d.key, b: customs[i + 1].key })),
+  ], [customs]);
   const groups = useMemo(() => groupByRound(games, allGames), [games, allGames]);
-  const avail = useMemo(() => ROUND_DEFS.filter((d) => groups.get(d.key).length > 0), [groups]);
+  const avail = useMemo(() => defs.filter((d) => groups.get(d.key).length > 0), [defs, groups]);
   const keyList = avail.map((d) => d.key);
   const [roundA, setRoundA] = useState('');
   const [roundB, setRoundB] = useState('');
-  const labelOf = (k) => ROUND_DEFS.find((d) => d.key === k)?.label || k;
+  const labelOf = (k) => defs.find((d) => d.key === k)?.label || k;
 
   // 默认选中"第一轮 → 第二轮"；组不存在时顺延到可用组，避免死选项
   const effA = keyList.includes(roundA) ? roundA : (keyList.includes('r1') ? 'r1' : keyList[0] || '');
@@ -1347,9 +1354,11 @@ function RoundCompareSection({ games, allGames, heroesById }) {
   const comboShift = useMemo(() => (A.n > 0 && B.n > 0 ? comboShiftRows(A.combos, A.n, B.combos, B.n) : []), [A, B]);
 
   return (
-    <Section title="轮次对比（常规赛第一轮/第二轮/第三轮 ↔ 季后赛）">
+    <Section title={customs.length
+      ? `轮次 / 赛段对比（常规赛轮次 ↔ 季后赛 ↔ ${customs.map((d) => d.label).join(' / ')}）`
+      : '轮次对比（常规赛第一轮/第二轮/第三轮 ↔ 季后赛）'}>
       <div className="filter-inline" style={{ marginBottom: 10 }}>
-        {ROUND_PRESETS.map((p) => (
+        {presets.map((p) => (
           <button key={p.label} className="btn btn-ghost btn-sm" onClick={() => { setRoundA(p.a); setRoundB(p.b); }}>{p.label}</button>
         ))}
       </div>
@@ -1375,7 +1384,7 @@ function RoundCompareSection({ games, allGames, heroesById }) {
         <ShiftTables labelA={labelOf(effA)} labelB={labelOf(effB)} heroShift={heroShift} comboShift={comboShift} heroesById={heroesById} />
       )}
       <div className="mini-note">
-        轮次按区间划分：从备注「第一轮」的那场系列赛起、到备注「第二轮」的那场之前的所有比赛都算第一轮（其余轮次同理）；季后赛从首场季后赛系列赛（赛段=季后赛或备注含季后赛/总决赛）起。只给系列赛起始处标注轮次即可，无需逐场备注。第一个标记之前的对局归入「未标注轮次」（不计入常规赛合计）。轮次归属按各赛事独立判定、在完整数据上计算（上方筛选不影响归属）。Ban-Pick 率 = (Pick+Ban) ÷ 2×该组局数，组合出现率分母 = 该组局数；英雄需两组 Pick+Ban 各 ≥3 次、组合各 ≥2 次才参与排名。
+        轮次按区间划分：从备注「第一轮」的那场系列赛起、到备注「第二轮」的那场之前的所有比赛都算第一轮（其余轮次同理）；季后赛从首场季后赛系列赛（赛段=季后赛或备注含季后赛/总决赛）起。只给系列赛起始处标注轮次即可，无需逐场备注。第一个标记之前的对局归入「未标注轮次」（不计入常规赛合计）。**特殊赛制赛事（如年度总决赛）不走备注轮次，直接按系列赛「赛段」值分组**（擂台赛/突围赛/淘汰赛，在录入/编辑时选择）。轮次归属按各赛事独立判定、在完整数据上计算（上方筛选不影响归属）。Ban-Pick 率 = (Pick+Ban) ÷ 2×该组局数，组合出现率分母 = 该组局数；英雄需两组 Pick+Ban 各 ≥3 次、组合各 ≥2 次才参与排名。
       </div>
     </Section>
   );

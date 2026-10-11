@@ -12,7 +12,7 @@ import {
   sideUsedFromGames, blueFlipConflicts, editSaveConflicts, effRoster, perspectiveGames,
 } from '../src/record/checks.js';
 import {
-  seriesRoundKeys, groupByRound, allTeamStats, comboStats,
+  seriesRoundKeys, groupByRound, allTeamStats, comboStats, roundDefs, customStageDefs,
 } from '../src/analysis/compute.js';
 
 let failed = 0;
@@ -184,6 +184,31 @@ const mkRound = (seriesId, eventId, date, note = '', stage = '常规赛') => ({
     const all2 = [mkRound(301, 1, '2026-06-17', '第1轮'), mkRound(302, 1, '2026-07-01'), mkRound(303, 1, '2026-07-09', '第2轮')];
     const keys2 = seriesRoundKeys(all2);
     return keys2.get(301) === 'r1' && keys2.get(302) === 'r1' && keys2.get(303) === 'r2';
+  })());
+  ok('[round] 非默认赛段按值直接分组（年度总决赛）', (() => {
+    const all = [
+      mkRound(401, 4, '2026-10-01', '', '擂台赛'), mkRound(402, 4, '2026-10-05', '', '突围赛'),
+      mkRound(403, 4, '2026-10-10', '', '淘汰赛'), mkRound(404, 4, '2026-10-12', '', '擂台赛'),
+      mkRound(101, 1, '2026-06-17', '第一轮'), mkRound(105, 1, '2026-09-01', '', '季后赛'),
+    ];
+    const keys = seriesRoundKeys(all);
+    return keys.get(401) === '擂台赛' && keys.get(402) === '突围赛' && keys.get(403) === '淘汰赛' && keys.get(404) === '擂台赛'
+      && keys.get(101) === 'r1' && keys.get(105) === 'po'; // 常规赛事的轮次归属不受影响
+  })());
+  ok('[round] customStageDefs 排序（同日按赛制顺序）+ groupByRound 动态组', (() => {
+    // 三场系列赛同日（年度总决赛常见），固有赛制顺序擂台→突围→淘汰优先于日期/字典序
+    const all = [
+      mkRound(403, 4, '2026-10-02', '', '淘汰赛'), mkRound(401, 4, '2026-10-02', '', '擂台赛'),
+      mkRound(402, 4, '2026-10-02', '', '突围赛'), mkRound(101, 1, '2026-06-17', '第一轮'),
+    ];
+    const defs = roundDefs(all);
+    const customs = customStageDefs(all);
+    const groups = groupByRound(all, all);
+    return customs.map((d) => d.key).join() === '擂台赛,突围赛,淘汰赛'
+      && defs.some((d) => d.key === '擂台赛' && d.custom)
+      && defs[defs.length - 1].key === 'other' // 未标注轮次恒最后
+      && groups.get('擂台赛').length === 1 && groups.get('淘汰赛').length === 1
+      && groups.get('regular').length === 1;
   })());
 }
 
