@@ -9,7 +9,7 @@ import {
   heroCounterScene, heroCounteredByScene, comboCounterScene,
   TRIO_DEFS, trioComboStats,
   globalComboStats, globalTrioStats, globalFiveStats,
-  heroShiftRows, comboShiftRows, floorShiftRows,
+  heroShiftRows, comboShiftRows, trioShiftRows, floorShiftRows,
   groupByRound, ROUND_DEFS, roundDefs,
   allPlayerStats, allTeamStats, afterLossSideStats,
 } from '../analysis/compute.js';
@@ -1350,6 +1350,38 @@ function FloorShiftTable({ rows, labelA, labelB, heroesById }) {
   );
 }
 
+/** 组合出现率变化表（不同赛事对比）：两英雄（comboShiftRows）/三英雄（trioShiftRows）共用 */
+function ComboChangeTable({ rows, labelA, labelB, heroesById, trio }) {
+  if (rows.length === 0) return <div className="empty-hint">样本不足（组合需两侧各出现 ≥2 次）</div>;
+  return (
+    <div className="table-wrap">
+      <table className="data-table">
+        <thead><tr><th>组合</th><th>{labelA}</th><th>{labelB}</th><th>变化</th></tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key}>
+              <td className="combo-cell">
+                {(trio ? r.heroes : [r.heroA, r.heroB]).map((h, i) => (
+                  <React.Fragment key={h}>
+                    {i > 0 && <span className="combo-plus">+</span>}
+                    <HeroName heroesById={heroesById} id={h} size={trio ? 20 : 22} />
+                  </React.Fragment>
+                ))}
+              </td>
+              <td className="num">{r.rateA}%（{r.picksA} 次）</td>
+              <td className="num">{r.rateB}%（{r.picksB} 次）</td>
+              <td className={`num ${r.diff > 0 ? 'delta-up' : 'delta-down'}`}
+                title={r.diff < 0 ? '出现率下降' : '出现率上升'}>
+                {r.diff === 0 ? '±0' : `${r.diff > 0 ? '▲' : '▼'} ${Math.abs(r.diff)}`}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /* ---- 轮次对比（按系列赛备注分组） ---- */
 const ROUND_PRESETS = [
   { label: '第一轮 ↔ 第二轮', a: 'r1', b: 'r2' },
@@ -1555,6 +1587,14 @@ function EventTab({ games, allGames, heroesById }) {
     compare.per.length === 2 ? floorShiftRows(compare.per[0].stats, compare.per[1].stats) : []
   ), [compare]);
 
+  // 跨赛事组合变化：两/三英雄组合在两侧各出现 ≥2 次，按出现率差值排序（selEvents 与 per 同序）
+  const comboShift = useMemo(() => (selEvents.length === 2
+    ? comboShiftRows(globalComboStats(selEvents[0].games), selEvents[0].games.length, globalComboStats(selEvents[1].games), selEvents[1].games.length)
+    : []), [selEvents]);
+  const trioShift = useMemo(() => (selEvents.length === 2
+    ? trioShiftRows(globalTrioStats(selEvents[0].games), selEvents[0].games.length, globalTrioStats(selEvents[1].games), selEvents[1].games.length)
+    : []), [selEvents]);
+
   // 本 tab 的不同赛事对比基于全量数据，仅在完全无数据时置空；筛选无结果时轮次区块自行提示
   if (allGames.length === 0) return <div className="panel empty-hint">暂无任何对局数据</div>;
 
@@ -1698,9 +1738,13 @@ function EventTab({ games, allGames, heroesById }) {
           <>
             <div className="sub-title" style={{ marginTop: 14 }}>英雄平均楼层变化 TOP（{compare.per[0].name} → {compare.per[1].name}）</div>
             <FloorShiftTable rows={floorShift} labelA={compare.per[0].name} labelB={compare.per[1].name} heroesById={heroesById} />
+            <div className="sub-title" style={{ marginTop: 14 }}>两英雄组合出现率变化 TOP（{compare.per[0].name} → {compare.per[1].name}）</div>
+            <ComboChangeTable rows={comboShift} labelA={compare.per[0].name} labelB={compare.per[1].name} heroesById={heroesById} />
+            <div className="sub-title" style={{ marginTop: 14 }}>三英雄组合出现率变化 TOP（{compare.per[0].name} → {compare.per[1].name}）</div>
+            <ComboChangeTable rows={trioShift} labelA={compare.per[0].name} labelB={compare.per[1].name} heroesById={heroesById} trio />
           </>
         )}
-        <div className="mini-note">一次对比两个范围（默认最近两个赛事的全部赛段，可细分到具体赛段，如 夏季赛·季后赛 vs 年度总决赛·擂台赛；同赛事不同赛段也可互比）。表行为两侧各出场（Pick+Ban）≥3 次的英雄，按 BP率 变化幅度排序（最多 15 名）；单元格显示该英雄在该侧的真实 BP率/胜率，「—」= 未出场。楼层变化表按两侧各 Pick ≥2 次的英雄、以平均楼层差排序（▼=右侧更早被选）；右侧列附与左侧的差值箭头（▲上升 ▼下降）。本区块基于全部赛事数据，不受上方筛选影响。</div>
+        <div className="mini-note">一次对比两个范围（默认最近两个赛事的全部赛段，可细分到具体赛段，如 夏季赛·季后赛 vs 年度总决赛·擂台赛；同赛事不同赛段也可互比）。表行为两侧各出场（Pick+Ban）≥3 次的英雄，按 BP率 变化幅度排序（最多 15 名）；单元格显示该英雄在该侧的真实 BP率/胜率，「—」= 未出场。楼层变化表按两侧各 Pick ≥2 次的英雄、以平均楼层差排序（▼=右侧更早被选）；两/三英雄组合变化表按两侧各出现 ≥2 次的组合、以出现率差值排序（分母为该侧局数）；右侧列附与左侧的差值箭头（▲上升 ▼下降）。本区块基于全部赛事数据，不受上方筛选影响。</div>
       </Section>
     </>
   );

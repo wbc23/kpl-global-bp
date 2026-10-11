@@ -13,6 +13,7 @@ import {
 } from '../src/record/checks.js';
 import {
   seriesRoundKeys, groupByRound, allTeamStats, comboStats, roundDefs, customStageDefs, floorShiftRows,
+  comboShiftRows, trioShiftRows,
 } from '../src/analysis/compute.js';
 
 let failed = 0;
@@ -210,6 +211,20 @@ const mkRound = (seriesId, eventId, date, note = '', stage = '常规赛') => ({
       && groups.get('擂台赛').length === 1 && groups.get('淘汰赛').length === 1
       && groups.get('regular').length === 1;
   })());
+}
+
+/* ================= 组合出现率变化（combo/trioShiftRows） ================= */
+{
+  const cp = (key, a, b, picks) => [key, { heroA: a, heroB: b, pair: 'x-y', picks, wins: 0 }];
+  const tp = (key, heroes, picks) => [key, { heroes, picks, wins: 0 }];
+  const pairA = new Map([cp('1|2', 1, 2, 2), cp('3|4', 3, 4, 5)]);
+  const pairB = new Map([cp('1|2', 1, 2, 6), cp('3|4', 3, 4, 1)]);
+  const pr = comboShiftRows(pairA, 10, pairB, 20);
+  ok('[combo-shift] 两英雄组合变化：两侧各≥2、差值排序', pr.length === 1 && pr[0].key === '1|2' && pr[0].rateA === 20 && pr[0].rateB === 30 && pr[0].diff === 10, JSON.stringify(pr));
+  const trioA = new Map([tp('1|2|3', [1, 2, 3], 2), tp('4|5|6', [4, 5, 6], 5)]);
+  const trioB = new Map([tp('1|2|3', [1, 2, 3], 6), tp('4|5|6', [4, 5, 6], 1), tp('7|8|9', [7, 8, 9], 3)]);
+  const tr = trioShiftRows(trioA, 10, trioB, 20);
+  ok('[trio-shift] 三英雄组合变化：单侧不足/缺失被排除', tr.length === 1 && tr[0].key === '1|2|3' && tr[0].heroes.join() === '1,2,3' && tr[0].diff === 10, JSON.stringify(tr));
 }
 
 /* ================= 楼层变化（floorShiftRows） ================= */

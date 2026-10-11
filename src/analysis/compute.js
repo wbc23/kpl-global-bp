@@ -621,6 +621,25 @@ export function comboShiftRows(comboA, gamesA, comboB, gamesB, topN = 8) {
   return rows.sort((x, y) => Math.abs(y.diff) - Math.abs(x.diff)).slice(0, topN);
 }
 
+/** 三英雄组合出现率变化（不同赛事对比）：与 comboShiftRows 同口径（两侧各出现 ≥2 次），
+ *  按出现率差值绝对值排序；分母为该组局数 */
+export function trioShiftRows(trioA, gamesA, trioB, gamesB, topN = 8) {
+  const rows = [];
+  for (const [key, cB] of trioB) {
+    const cA = trioA.get(key);
+    const pA = cA ? cA.picks : 0;
+    if (pA < 2 || cB.picks < 2) continue;
+    const rA = (pA / gamesA) * 100;
+    const rB = (cB.picks / gamesB) * 100;
+    rows.push({
+      key, heroes: cB.heroes, picksA: pA, picksB: cB.picks,
+      rateA: Math.round(rA * 10) / 10, rateB: Math.round(rB * 10) / 10,
+      diff: Math.round((rB - rA) * 10) / 10,
+    });
+  }
+  return rows.sort((x, y) => Math.abs(y.diff) - Math.abs(x.diff)).slice(0, topN);
+}
+
 /** 楼层选用变化（轮次/赛段对比）：两组各被 Pick ≥2 次的英雄，比较平均楼层（Σ楼层×次数 ÷ Pick 次数），
  *  按差值绝对值排序。diff = B组 − A组：负数 = 更早被选（向 1 楼移动，如 擂台赛4/5楼 → 突围赛1/2楼） */
 export function floorShiftRows(statsA, statsB, topN = 10) {
