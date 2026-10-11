@@ -621,6 +621,27 @@ export function comboShiftRows(comboA, gamesA, comboB, gamesB, topN = 8) {
   return rows.sort((x, y) => Math.abs(y.diff) - Math.abs(x.diff)).slice(0, topN);
 }
 
+/** 楼层选用变化（轮次/赛段对比）：两组各被 Pick ≥2 次的英雄，比较平均楼层（Σ楼层×次数 ÷ Pick 次数），
+ *  按差值绝对值排序。diff = B组 − A组：负数 = 更早被选（向 1 楼移动，如 擂台赛4/5楼 → 突围赛1/2楼） */
+export function floorShiftRows(statsA, statsB, topN = 10) {
+  const avgOf = (s) => {
+    if (!s || s.picks < 2) return null;
+    const sum = s.floors.reduce((a, c, i) => a + c * (i + 1), 0);
+    return { avg: Math.round((sum / s.picks) * 10) / 10, picks: s.picks };
+  };
+  const rows = [];
+  for (const [heroId, sB] of statsB) {
+    const a = avgOf(statsA.get(heroId));
+    const b = avgOf(sB);
+    if (!a || !b) continue;
+    rows.push({
+      heroId, avgA: a.avg, picksA: a.picks, avgB: b.avg, picksB: b.picks,
+      diff: Math.round((b.avg - a.avg) * 10) / 10,
+    });
+  }
+  return rows.sort((x, y) => Math.abs(y.diff) - Math.abs(x.diff)).slice(0, topN);
+}
+
 /* ================= 全选手一览（选手分析页） ================= */
 
 /** 9. 全部出场选手聚合：出场/胜率/蓝红方胜率/英雄偏好/所属战队 */

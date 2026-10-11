@@ -9,7 +9,7 @@ import {
   heroCounterScene, heroCounteredByScene, comboCounterScene,
   TRIO_DEFS, trioComboStats,
   globalComboStats, globalTrioStats, globalFiveStats,
-  heroShiftRows, comboShiftRows,
+  heroShiftRows, comboShiftRows, floorShiftRows,
   groupByRound, ROUND_DEFS, roundDefs,
   allPlayerStats, allTeamStats, afterLossSideStats,
 } from '../analysis/compute.js';
@@ -1262,9 +1262,10 @@ function PlayerTab({ games, heroesById }) {
 
 /* ================= 赛事分析（需求 8） ================= */
 
-/** 两组样本的变化对比表（英雄 Ban-Pick 率 + 组合出现率），月度对比与轮次对比共用 */
-function ShiftTables({ labelA, labelB, heroShift, comboShift, heroesById }) {
+/** 两组样本的变化对比表（英雄 Ban-Pick 率 + 组合出现率 + 英雄平均楼层），轮次对比共用 */
+function ShiftTables({ labelA, labelB, heroShift, comboShift, floorShift = [], heroesById }) {
   return (
+    <>
     <div className="two-col">
       <div>
         <div className="sub-title">英雄 Ban-Pick 率变化 TOP（{labelA} → {labelB}）</div>
@@ -1315,6 +1316,31 @@ function ShiftTables({ labelA, labelB, heroShift, comboShift, heroesById }) {
         )}
       </div>
     </div>
+
+    <div style={{ marginTop: 12 }}>
+      <div className="sub-title">英雄平均楼层变化 TOP（{labelA} → {labelB}）</div>
+      {floorShift.length === 0 ? <div className="empty-hint">样本不足（英雄需两组各 Pick ≥2 次）</div> : (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>英雄</th><th>{labelA}</th><th>{labelB}</th><th>变化</th></tr></thead>
+            <tbody>
+              {floorShift.map((r) => (
+                <tr key={r.heroId}>
+                  <td><HeroName heroesById={heroesById} id={r.heroId} /></td>
+                  <td className="num">{r.avgA} 楼（{r.picksA} 次）</td>
+                  <td className="num">{r.avgB} 楼（{r.picksB} 次）</td>
+                  <td className={`num ${r.diff > 0 ? 'delta-up' : 'delta-down'}`}
+                    title={r.diff < 0 ? '平均楼层下降 = 更早被选（向 1 楼移动）' : '平均楼层上升 = 更晚被选'}>
+                    {r.diff === 0 ? '±0' : `${r.diff > 0 ? '▲' : '▼'} ${Math.abs(r.diff)}`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+    </>
   );
 }
 
@@ -1357,6 +1383,7 @@ function RoundCompareSection({ games, allGames, heroesById }) {
   const B = useMemo(() => mk(groups.get(effB) || []), [groups, effB]);
   const heroShift = useMemo(() => (A.n > 0 && B.n > 0 ? heroShiftRows(A.stats, A.n, B.stats, B.n) : []), [A, B]);
   const comboShift = useMemo(() => (A.n > 0 && B.n > 0 ? comboShiftRows(A.combos, A.n, B.combos, B.n) : []), [A, B]);
+  const floorShift = useMemo(() => (A.n > 0 && B.n > 0 ? floorShiftRows(A.stats, B.stats) : []), [A, B]);
 
   return (
     <Section
@@ -1390,10 +1417,10 @@ function RoundCompareSection({ games, allGames, heroesById }) {
       {A.n === 0 || B.n === 0 ? (
         <div className="empty-hint">两组中至少一组暂无对局</div>
       ) : (
-        <ShiftTables labelA={labelOf(effA)} labelB={labelOf(effB)} heroShift={heroShift} comboShift={comboShift} heroesById={heroesById} />
+            <ShiftTables labelA={labelOf(effA)} labelB={labelOf(effB)} heroShift={heroShift} comboShift={comboShift} floorShift={floorShift} heroesById={heroesById} />
       )}
       <div className="mini-note">
-        轮次按区间划分：从备注「第一轮」的那场系列赛起、到备注「第二轮」的那场之前的所有比赛都算第一轮（其余轮次同理）；季后赛从首场季后赛系列赛（赛段=季后赛或备注含季后赛/总决赛）起。只给系列赛起始处标注轮次即可，无需逐场备注。第一个标记之前的对局归入「未标注轮次」（不计入常规赛合计）。**特殊赛制赛事（如年度总决赛）不走备注轮次，直接按系列赛「赛段」值分组**（擂台赛/突围赛/淘汰赛，在录入/编辑时选择）。轮次归属按各赛事独立判定、在完整数据上计算（上方筛选不影响归属）。Ban-Pick 率 = (Pick+Ban) ÷ 2×该组局数，组合出现率分母 = 该组局数；英雄需两组 Pick+Ban 各 ≥3 次、组合各 ≥2 次才参与排名。
+        轮次按区间划分：从备注「第一轮」的那场系列赛起、到备注「第二轮」的那场之前的所有比赛都算第一轮（其余轮次同理）；季后赛从首场季后赛系列赛（赛段=季后赛或备注含季后赛/总决赛）起。只给系列赛起始处标注轮次即可，无需逐场备注。第一个标记之前的对局归入「未标注轮次」（不计入常规赛合计）。**特殊赛制赛事（如年度总决赛）不走备注轮次，直接按系列赛「赛段」值分组**（擂台赛/突围赛/淘汰赛，在录入/编辑时选择）。轮次归属按各赛事独立判定、在完整数据上计算（上方筛选不影响归属）。Ban-Pick 率 = (Pick+Ban) ÷ 2×该组局数，组合出现率分母 = 该组局数；英雄需两组 Pick+Ban 各 ≥3 次、组合各 ≥2 次才参与排名；楼层变化按两组各 Pick ≥2 次的英雄、以平均楼层差排序（▼ = 更早被选，向 1 楼移动）。
       </div>
     </Section>
   );

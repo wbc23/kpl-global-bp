@@ -12,7 +12,7 @@ import {
   sideUsedFromGames, blueFlipConflicts, editSaveConflicts, effRoster, perspectiveGames,
 } from '../src/record/checks.js';
 import {
-  seriesRoundKeys, groupByRound, allTeamStats, comboStats, roundDefs, customStageDefs,
+  seriesRoundKeys, groupByRound, allTeamStats, comboStats, roundDefs, customStageDefs, floorShiftRows,
 } from '../src/analysis/compute.js';
 
 let failed = 0;
@@ -210,6 +210,20 @@ const mkRound = (seriesId, eventId, date, note = '', stage = '常规赛') => ({
       && groups.get('擂台赛').length === 1 && groups.get('淘汰赛').length === 1
       && groups.get('regular').length === 1;
   })());
+}
+
+/* ================= 楼层变化（floorShiftRows） ================= */
+{
+  const mkS = (picks, floors) => ({ heroId: 0, picks, pickWins: 0, bans: 0, floors });
+  const A = new Map([[1, mkS(4, [0, 0, 0, 1, 3])], [2, mkS(5, [5, 0, 0, 0, 0])], [3, mkS(1, [1, 0, 0, 0, 0])]]);
+  const B = new Map([[1, mkS(4, [3, 1, 0, 0, 0])], [2, mkS(4, [0, 0, 1, 1, 2])], [4, mkS(3, [1, 1, 1, 0, 0])]]);
+  const rows = floorShiftRows(A, B);
+  ok('[floor] 平均楼层变化：前移英雄排前、样本不足/单侧英雄排除', (() => {
+    const [r1, r2] = rows;
+    return rows.length === 2
+      && r1.heroId === 1 && r1.avgA === 4.8 && r1.avgB === 1.3 && r1.diff === -3.5
+      && r2.heroId === 2 && r2.avgA === 1 && r2.avgB === 4.3 && r2.diff === 3.3;
+  })(), JSON.stringify(rows));
 }
 
 /* ================= 大场胜负门槛（#9） ================= */
