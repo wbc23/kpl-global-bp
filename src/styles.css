@@ -832,6 +832,41 @@ html[data-theme='dark'] .sub-chip.in { border-color: #6fce92; }
 .roster-edit-grid .setup-player input { flex: 1; }
 .pos-label { font-size: 11px; min-width: 110px; }
 
+/* ---------- 参赛战队卡片选择（大名单页弹窗） ---------- */
+.teamsetup-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.teamsetup-search { flex: 1; min-width: 150px; }
+.teamsetup-count { font-size: 13px; color: var(--text-dim); white-space: nowrap; }
+.teamsetup-count b { color: var(--gold); font-size: 15px; }
+.teamsetup-addform {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  border: 1px dashed var(--gold); border-radius: 10px;
+  background: var(--gold-bg); padding: 9px 12px; margin-bottom: 10px;
+}
+.teamsetup-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 8px; margin: 4px 0 14px;
+}
+.team-card {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 46px; padding: 8px 12px;
+  background: var(--card-bg); border: 1px solid var(--line); border-radius: 10px;
+  color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.team-card:hover { border-color: var(--gold); box-shadow: var(--shadow); }
+.team-card.on {
+  border-color: var(--gold); background: var(--gold-bg); color: var(--gold);
+  font-weight: 800; box-shadow: 0 0 0 1px var(--gold);
+}
+.tc-check {
+  flex: none; width: 15px; height: 15px; border-radius: 50%;
+  background: var(--gold); color: #fff; font-size: 10px; font-weight: 800;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+/* 未选中时占位，避免勾选出现/消失时文字跳位 */
+.team-card .tc-check.off { visibility: hidden; }
+.tc-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* ---------- 页脚 ---------- */
 .footer { text-align: center; color: var(--text-dim); opacity: 0.65; font-size: 11px; margin-top: 26px; }
 

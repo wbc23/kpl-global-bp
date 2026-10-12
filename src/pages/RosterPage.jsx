@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../api.js';
 import { useEscape } from '../app.js';
 import { DEFAULT_PLAYERS, LANE_BADGES } from '../data/constants.js';
-import TeamPicker from '../components/TeamPicker.jsx';
+import { PINYIN } from '../components/TeamPicker.jsx';
 
 /** 大名单管理：每赛季（赛事）确定参赛战队并为各队登记选手，录入比赛时点选首发 */
 export default function RosterPage() {
@@ -169,53 +169,52 @@ function ParticipatingTeamsDialog({ meta, eventId, initialTeamIds, onClose, onSa
   const ev = meta.events.find((e) => e.id === eventId);
   // 本地战队副本：新建战队后直接 append，无需整页刷新
   const [teams, setTeams] = useState(() => [...meta.teams]);
-  const [slots, setSlots] = useState(() => initialTeamIds.slice(0, 30).map(String)); // '' = 待选
-  const [count, setCount] = useState(() => Math.min(initialTeamIds.length, 30));
+  const [selected, setSelected] = useState(() => new Set(initialTeamIds));
+  const [q, setQ] = useState('');
+  const [addOpen, setAddOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newShort, setNewShort] = useState('');
   const [err, setErr] = useState('');
   const [saving, setSaving] = useState(false);
 
   if (!ev) return null;
-  const filled = slots.filter(Boolean).length;
 
-  // 调整数量：增槽优先用尚未选入的战队自动补齐（如刚新建的战队），减槽从末尾截断
-  const changeCount = (n) => {
-    const next = Math.max(1, Math.min(30, Math.floor(Number(n) || 1)));
-    setCount(next);
-    setSlots((prev) => {
-      const arr = prev.slice(0, next);
-      while (arr.length < next) {
-        const used = new Set(arr.filter(Boolean).map(Number));
-        const free = teams.find((t) => !used.has(t.id));
-        arr.push(free ? String(free.id) : '');
-      }
-      return arr;
+  const query = q.trim().toLowerCase();
+  const list = query
+    ? teams.filter((t) => `${t.name} ${t.short || ''} ${PINYIN[t.name] || ''}`.toLowerCase().includes(query))
+    : teams;
+
+  const toggle = (id) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  // 全选/清空只作用于当前搜索结果（未搜索时即全体战队）
+  const setAll = (on) => {
+    const ids = list.map((t) => t.id);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => (on ? next.add(id) : next.delete(id)));
+      return next;
     });
   };
-
-  const setSlot = (i, v) => { const arr = [...slots]; arr[i] = v; setSlots(arr); };
 
   const addTeam = async () => {
     const name = newName.trim();
     if (!name) return setErr('战队名称不能为空');
     try {
       const r = await api.addTeam(name, newShort.trim());
-      const t = { id: r.id, name, short: newShort.trim() };
-      setTeams((prev) => [...prev, t]);
-      // 自动放进第一个空槽；没有空槽则提示增加数量
-      const idx = slots.findIndex((s) => !s);
-      if (idx !== -1) { setSlot(idx, String(r.id)); setErr(''); }
-      else setErr(`已创建 ${name}，增加战队数量后它会自动进入下一个空位`);
-      setNewName(''); setNewShort('');
+      setTeams((prev) => [...prev, { id: r.id, name, short: newShort.trim() }]);
+      setSelected((prev) => new Set(prev).add(r.id)); // 新建即选中
+      setAddOpen(false); setNewName(''); setNewShort(''); setErr('');
     } catch (e) { setErr(e.message); }
   };
 
   const save = async () => {
-    if (slots.some((s) => !s)) return setErr('还有空位未选战队（可减少数量或逐槽选择）');
+    if (!selected.size) return setErr('至少选择 1 支参赛战队');
     setSaving(true); setErr('');
     try {
-      const ids = slots.map(Number);
+      const ids = teams.filter((t) => selected.has(t.id)).map((t) => t.id);
       await api.saveEventTeams(eventId, ids);
       onSaved(ids);
     } catch (e) { setErr(e.message); } finally { setSaving(false); }
@@ -229,41 +228,52 @@ function ParticipatingTeamsDialog({ meta, eventId, initialTeamIds, onClose, onSa
           <button className="btn btn-ghost btn-sm" onClick={onClose}>关闭</button>
         </div>
         <div className="roster-edit-hint">
-          赛事开始时先确定参赛队伍（新队加入、老队退出都在这里改），保存后列表只显示这些战队；各队大名单随后的登记/调整不受影响
+          点卡片选择 / 取消参赛战队，保存后本页列表与录入选队只显示这些战队
         </div>
-        <div className="setup-row">
-          <span className="setup-label">战队数量</span>
+        <div className="teamsetup-bar">
           <input
-            type="number" min="1" max="30" value={count}
-            style={{ width: 70 }}
-            onChange={(e) => changeCount(e.target.value)}
+            className="teamsetup-search" value={q}
+            placeholder="搜索战队（名称 / 简称 / 拼音）"
+            onChange={(e) => setQ(e.target.value)}
           />
-          <span className="dim" style={{ fontSize: 12 }}>已选 {filled}/{slots.length}（已选战队在其他位置不再出现）</span>
+          <span className="teamsetup-count">已选 <b>{selected.size}</b>/{teams.length}</span>
+          <button className="btn btn-ghost btn-sm" disabled={!list.length} onClick={() => setAll(true)}>全选</button>
+          <button className="btn btn-ghost btn-sm" disabled={!selected.size} onClick={() => setAll(false)}>清空</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setAddOpen(!addOpen)}>
+            {addOpen ? '收起新建' : '＋ 新建战队'}
+          </button>
         </div>
-        <div className="setup-row" style={{ alignItems: 'flex-start' }}>
-          <span className="setup-label">新建战队</span>
-          <input style={{ width: 160 }} value={newName} maxLength={12} placeholder="名称，如：镇江VS" onChange={(e) => setNewName(e.target.value)} />
-          <input style={{ width: 100 }} value={newShort} maxLength={8} placeholder="简称，如：VS" onChange={(e) => setNewShort(e.target.value)} />
-          <button className="btn btn-blue btn-sm" onClick={addTeam}>创建并加入</button>
-          <span className="dim" style={{ fontSize: 12 }}>（创建后自动进入空位；战队改名/删除在「基础数据」页）</span>
-        </div>
-        <div className="roster-edit-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(240px, 1fr))' }}>
-          {slots.map((sid, i) => (
-            <div className="setup-player" key={i}>
-              <span className="setup-player-no">{i + 1}</span>
-              <TeamPicker
-                teams={teams.filter((t) => !slots.some((s, j) => j !== i && Number(s) === t.id))}
-                value={sid === '' ? '' : Number(sid)}
-                onChange={(v) => setSlot(i, v === '' ? '' : String(v))}
-                placeholder={`选择第 ${i + 1} 支战队…`}
-              />
-            </div>
-          ))}
+        {addOpen && (
+          <div className="teamsetup-addform">
+            <input style={{ width: 150 }} value={newName} maxLength={12} placeholder="名称，如：镇江VS"
+              onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addTeam(); }} />
+            <input style={{ width: 96 }} value={newShort} maxLength={8} placeholder="简称，如：VS"
+              onChange={(e) => setNewShort(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addTeam(); }} />
+            <button className="btn btn-blue btn-sm" onClick={addTeam}>创建并加入</button>
+            <span className="dim" style={{ fontSize: 12 }}>创建后自动选中；改名/删除在「基础数据」页</span>
+          </div>
+        )}
+        <div className="teamsetup-grid">
+          {list.map((t) => {
+            const on = selected.has(t.id);
+            return (
+              <button
+                type="button" key={t.id}
+                className={`team-card ${on ? 'on' : ''}`}
+                title={t.short && t.short !== t.name ? `${t.name}（${t.short}）` : t.name}
+                onClick={() => toggle(t.id)}
+              >
+                <span className={`tc-check ${on ? '' : 'off'}`}>✓</span>
+                <span className="tc-name">{t.name}</span>
+              </button>
+            );
+          })}
+          {!list.length && <div className="pool-empty">无匹配战队</div>}
         </div>
         {err && <div className="error-banner">{err}</div>}
         <div className="overlay-actions">
-          <button className="btn btn-gold" disabled={saving || filled !== slots.length} onClick={save}>
-            {saving ? '保存中…' : `保存参赛战队（${filled}/${slots.length}）`}
+          <button className="btn btn-gold" disabled={saving || !selected.size} onClick={save}>
+            {saving ? '保存中…' : `保存参赛战队（${selected.size} 支）`}
           </button>
           <button className="btn btn-ghost" onClick={onClose}>取消</button>
         </div>

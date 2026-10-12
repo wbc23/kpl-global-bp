@@ -3,8 +3,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 /**
  * 预置战队的拼音检索词（新名单外的自定义战队自动按名称/简称匹配）。
  * 想补充新战队拼音时，在这里加一行即可。
+ * 参赛战队卡片选择的搜索也复用该表。
  */
-const PINYIN = {
+export const PINYIN = {
   '北京JDG': 'bj jdg', '广州TTG': 'gz ttg', '长沙TES.A': 'cs tesa tes',
   'SYG': 'syg', '西安WE': 'xa we', '佛山DRG': 'fs drg', '北京WB': 'bj wb',
   '杭州LGD.NBW': 'hz lgd nbw', '上海EDG.M': 'sh edgm edg',
