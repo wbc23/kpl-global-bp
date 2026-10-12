@@ -6,7 +6,7 @@ import { LANE_BADGES, DEFAULT_STAGES, CUSTOM_STAGE_ORDER } from '../data/constan
 import {
   flattenGames, filterGames, heroStats, teamStats, comboStats,
   overviewStats, PAIR_DEFS, pct,
-  heroCounterScene, heroCounteredByScene, comboCounterScene,
+  heroCounterScene, heroCounteredByScene, comboCounterScene, heroRivalStats,
   TRIO_DEFS, trioComboStats,
   globalComboStats, globalTrioStats, globalFiveStats,
   heroShiftRows, comboShiftRows, trioShiftRows, floorShiftRows,
@@ -331,8 +331,11 @@ const HERO_STEP = 30;
 const COMBO_STEP = 50;
 const COMBO_MIN = 5;  // 两位置组合默认显示门槛（搜索不限）
 const TRIO_MIN = 3;   // 三位置组合默认显示门槛（搜索不限）
+const RIVAL_MIN = 3;  // 对位克制榜默认显示门槛：与该英雄对战场次（搜索/排序不限）
 
 function HeroTab({ games, heroesById }) {
+  // 二级页签：数据总览（原有各区块）/ 对位克制（单英雄对位胜负深看）
+  const [view, setView] = useState('stats');
   const { sort, setSort, apply } = useSort('total');
   const [heroQuery, setHeroQuery] = useState('');
   const [laneFilter, setLaneFilter] = useState('');
@@ -375,7 +378,13 @@ function HeroTab({ games, heroesById }) {
 
   return (
     <>
-      <Section
+      <div className="tab-bar">
+        <button className={`tab ${view === 'stats' ? 'on' : ''}`} onClick={() => setView('stats')}>数据总览</button>
+        <button className={`tab ${view === 'rival' ? 'on' : ''}`} onClick={() => setView('rival')}>对位克制</button>
+      </div>
+      {view === 'stats' ? (
+        <>
+          <Section
         title={`英雄数据（共 ${stats.length} 名英雄登场，Pick/Ban 率分母为 2×局数）`}
         extra={
           <>
@@ -467,8 +476,137 @@ function HeroTab({ games, heroesById }) {
       <GlobalComboSection games={games} heroesById={heroesById} />
       <GlobalTrioSection games={games} heroesById={heroesById} />
       <GlobalFiveSection games={games} heroesById={heroesById} />
-      <HeroCounterSection games={games} heroesById={heroesById} />
+        </>
+      ) : (
+        <HeroRivalView games={games} heroesById={heroesById} />
+      )}
     </>
+  );
+}
+
+/* ---- 对位克制页签：某英雄最常输给 / 最常赢的对方英雄与两英雄组合 ---- */
+function RivalRows({ rows, heroesById, combo }) {
+  if (!rows.length) {
+    return <div className="empty-hint">暂无对手样本（对战场次 ≥{RIVAL_MIN} 才入榜）</div>;
+  }
+  return (
+    <div className="table-wrap">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>{combo ? '对方组合' : '对方英雄'}</th>
+            <th title="该英雄出场、且对方阵容中含该对手的对局数">对战</th>
+            <th title="这些对局中该英雄所在方获胜的场数">胜</th>
+            <th title="这些对局中该英雄所在方落败的场数">负</th>
+            <th title="该英雄面对该对手的对局胜率">胜率</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((e) => (
+            <tr key={combo ? `${e.heroA}|${e.heroB}` : e.heroId}>
+              <td className="combo-cell">
+                {combo
+                  ? (
+                    <>
+                      <HeroName heroesById={heroesById} id={e.heroA} size={24} />
+                      <span className="combo-plus">+</span>
+                      <HeroName heroesById={heroesById} id={e.heroB} size={24} />
+                    </>
+                  )
+                  : <HeroName heroesById={heroesById} id={e.heroId} size={24} />}
+              </td>
+              <td className="num">{e.games}</td>
+              <td className="num">{e.wins}</td>
+              <td className="num">{e.losses}</td>
+              <td><WrBar value={e.winRate} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ---- 对位克制页签：顶部共用选英雄，下挂 对位胜负 + Counter 时机 两组分析 ---- */
+function HeroRivalView({ games, heroesById }) {
+  const [heroId, setHeroId] = useState('');
+  const heroOptions = useMemo(() => [...heroStats(games).values()]
+    .filter((s) => s.picks > 0)
+    .sort((a, b) => (b.picks + b.bans) - (a.picks + a.bans))
+    .slice(0, 40), [games]);
+  const effHeroId = Number(heroId) || heroOptions[0]?.heroId;
+  return (
+    <>
+      <div className="panel rec-toolbar">
+        <span className="filter-label">选择英雄</span>
+        <select value={heroId} onChange={(e) => setHeroId(e.target.value)}
+          title="按 Pick+Ban 热度列出前 40 名英雄；切换后下方对位胜负与 Counter 两个区块一起联动">
+          {heroOptions.map((s) => (
+            <option key={s.heroId} value={s.heroId}>
+              {heroesById[s.heroId]?.name ?? s.heroId}（Pick+Ban {s.picks + s.bans}）
+            </option>
+          ))}
+        </select>
+      </div>
+      <HeroRivalSection games={games} heroesById={heroesById} heroId={effHeroId} />
+      <HeroCounterSection games={games} heroesById={heroesById} heroId={effHeroId} />
+    </>
+  );
+}
+
+function HeroRivalSection({ games, heroesById, heroId }) {
+  const rival = useMemo(() => (heroId ? heroRivalStats(games, heroId) : null), [games, heroId]);
+
+  const { heroLoss, heroWin, comboLoss, comboWin } = useMemo(() => {
+    if (!rival) return { heroLoss: [], heroWin: [], comboLoss: [], comboWin: [] };
+    // ≥RIVAL_MIN 场才入榜；输给榜只列真实输过的对手、赢榜只列真实赢过的（免得 0 负对手混进克星列）
+    const mk = (map) => [...map.values()]
+      .filter((e) => e.games >= RIVAL_MIN)
+      .map((e) => ({ ...e, winRate: pct(e.wins, e.games) }));
+    const heroes = mk(rival.heroMap);
+    const combos = mk(rival.comboMap);
+    const byLosses = (a, b) => b.losses - a.losses || b.games - a.games;
+    const byWins = (a, b) => b.wins - a.wins || b.games - a.games;
+    return {
+      heroLoss: heroes.filter((e) => e.losses > 0).sort(byLosses).slice(0, 10),
+      heroWin: heroes.filter((e) => e.wins > 0).sort(byWins).slice(0, 10),
+      comboLoss: combos.filter((e) => e.losses > 0).sort(byLosses).slice(0, 10),
+      comboWin: combos.filter((e) => e.wins > 0).sort(byWins).slice(0, 10),
+    };
+  }, [rival]);
+
+  return (
+    <Section title="对位胜负（该英雄最常输给谁 / 最常赢谁）">
+      {!rival || !rival.picks ? (
+        <div className="empty-hint">当前筛选下暂无该英雄的常规局出场</div>
+      ) : (
+        <>
+          <div className="counter-summary">
+            <HeroName heroesById={heroesById} id={heroId} size={22} />
+            {' '}常规局出场 {rival.picks} 次 · 胜率 {pct(rival.wins, rival.picks)}% —— 左列为它的克星（最常输给），右列为它最常赢的对手
+          </div>
+          <div className="two-col">
+            <div>
+              <div className="sub-title">最常输给 · 对方英雄 TOP10（按负场排序）</div>
+              <RivalRows rows={heroLoss} heroesById={heroesById} />
+              <div className="sub-title" style={{ marginTop: 14 }}>最常输给 · 对方组合 TOP10</div>
+              <RivalRows rows={comboLoss} heroesById={heroesById} combo />
+            </div>
+            <div>
+              <div className="sub-title">最常赢 · 对方英雄 TOP10（按胜场排序）</div>
+              <RivalRows rows={heroWin} heroesById={heroesById} />
+              <div className="sub-title" style={{ marginTop: 14 }}>最常赢 · 对方组合 TOP10</div>
+              <RivalRows rows={comboWin} heroesById={heroesById} combo />
+            </div>
+          </div>
+          <div className="mini-note">
+            统计常规局中该英雄出场、对方阵容含该对手的对局，按该英雄所在方的胜负计；对战场次 ≥{RIVAL_MIN} 才入榜（各取 TOP10，
+            输给榜只列真实输过的对手、赢榜只列真实赢过的）；巅峰对决盲选局不计（双方可同选该英雄，胜负归属歧义）。
+            组合为对方阵容中任意两英雄同现。英雄在页签顶部下拉选择（按 Pick+Ban 热度列前 40 名）。
+          </div>
+        </>
+      )}
+    </Section>
   );
 }
 
@@ -690,29 +828,23 @@ function GlobalFiveSection({ games, heroesById }) {
   );
 }
 
-/* ---- 英雄/组合 Counter 关系（需求 5） ---- */
-function HeroCounterSection({ games, heroesById }) {
+/* ---- 英雄/组合 Counter 关系（需求 5）：英雄模式与页签顶部的共用英雄联动 ---- */
+function HeroCounterSection({ games, heroesById, heroId }) {
   const [mode, setMode] = useState('hero');
   const [view, setView] = useState('out');
-  const heroOptions = useMemo(() => [...heroStats(games).values()]
-    .filter((s) => s.picks > 0)
-    .sort((a, b) => (b.picks + b.bans) - (a.picks + a.bans))
-    .slice(0, 40), [games]);
-  const [heroId, setHeroId] = useState('');
   const combos = useMemo(() => globalComboStats(games), [games]);
   const comboOptions = useMemo(() => [...combos.values()].sort((a, b) => b.picks - a.picks).slice(0, 40), [combos]);
   const [comboKey, setComboKey] = useState('');
 
-  const effHeroId = Number(heroId) || heroOptions[0]?.heroId;
   const effComboKey = comboKey || (comboOptions[0] ? `${comboOptions[0].heroA}|${comboOptions[0].heroB}` : '');
 
   const heroScene = useMemo(
-    () => (mode === 'hero' && effHeroId ? heroCounterScene(games, effHeroId) : null),
-    [mode, games, effHeroId]
+    () => (mode === 'hero' && heroId ? heroCounterScene(games, heroId) : null),
+    [mode, games, heroId]
   );
   const heroIn = useMemo(
-    () => (mode === 'hero' && effHeroId ? heroCounteredByScene(games, effHeroId) : null),
-    [mode, games, effHeroId]
+    () => (mode === 'hero' && heroId ? heroCounteredByScene(games, heroId) : null),
+    [mode, games, heroId]
   );
   const comboScene = useMemo(() => {
     if (mode !== 'combo' || !effComboKey) return null;
@@ -744,15 +876,7 @@ function HeroCounterSection({ games, heroesById }) {
               <option value="in">视角：谁 counter 它</option>
             </select>
           )}
-          {mode === 'hero' ? (
-            <select value={heroId} onChange={(e) => setHeroId(e.target.value)}>
-              {heroOptions.map((s) => (
-                <option key={s.heroId} value={s.heroId}>
-                  {heroesById[s.heroId]?.name ?? s.heroId}（Pick+Ban {s.picks + s.bans}）
-                </option>
-              ))}
-            </select>
-          ) : (
+          {mode === 'combo' && (
             <select value={comboKey} onChange={(e) => setComboKey(e.target.value)}>
               {comboOptions.map((c) => (
                 <option key={`${c.heroA}|${c.heroB}`} value={`${c.heroA}|${c.heroB}`}>
@@ -767,7 +891,7 @@ function HeroCounterSection({ games, heroesById }) {
       {mode === 'hero' && view === 'out' && heroScene && (
         <>
           <div className="counter-summary">
-            <HeroName heroesById={heroesById} id={effHeroId} size={22} />
+            <HeroName heroesById={heroesById} id={heroId} size={22} />
             {' '}常规局出场 {heroScene.picks} 次 · 胜率 {pct(heroScene.wins, heroScene.picks)}% —— 常在对方亮出下列英雄时被选出：
           </div>
           <div className="counter-rows">
@@ -790,7 +914,7 @@ function HeroCounterSection({ games, heroesById }) {
       {mode === 'hero' && view === 'in' && heroIn && (
         <>
           <div className="counter-summary">
-            <HeroName heroesById={heroesById} id={effHeroId} size={22} />
+            <HeroName heroesById={heroesById} id={heroId} size={22} />
             {' '}常规局出场 {heroIn.picks} 次 · 胜率 {pct(heroIn.wins, heroIn.picks)}% —— 常被以下英雄作为 counter 选出（对方在它亮出后点选）：
           </div>
           <div className="counter-rows">
@@ -828,7 +952,7 @@ function HeroCounterSection({ games, heroesById }) {
         </>
       )}
       <div className="mini-note">
-        仅统计常规局中「对方已亮英雄（BP 手序在本方之前）」的场景，即该英雄/组合是在看到对方英雄后作为 counter 被选出的；巅峰对决盲选局不计。下拉中的数字为热度参考：按英雄 = 该英雄 Pick+Ban 总次数，按组合 = 该组合出场次数。
+        仅统计常规局中「对方已亮英雄（BP 手序在本方之前）」的场景，即该英雄/组合是在看到对方英雄后作为 counter 被选出的；巅峰对决盲选局不计。英雄模式使用页签顶部选中的英雄（与对位胜负联动）；组合模式的下拉数字为该组合出场次数。
       </div>
     </Section>
   );

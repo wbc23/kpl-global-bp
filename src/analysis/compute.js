@@ -280,6 +280,45 @@ export function comboCounterScene(games, heroA, heroB) {
   return { picks, wins, heroCount, comboCount };
 }
 
+/**
+ * 对位克制：某英雄出场时，对方阵容中各英雄 / 两英雄组合的胜负统计。
+ * 与 heroStats 同口径：蓝红两侧的出场都算该英雄；每局对每名对方英雄最多计 1 次。
+ * 盲选局不计（双方可同选该英雄、胜负归属歧义）；组合键为 "lo|hi"（英雄 id 升序）。
+ */
+export function heroRivalStats(games, heroId) {
+  const heroMap = new Map();  // 对方英雄 id -> { heroId, games, wins, losses }
+  const comboMap = new Map(); // 对方两英雄组合 "lo|hi" -> { heroA, heroB, games, wins, losses }
+  let picks = 0, wins = 0;
+  for (const g of games) {
+    if (g.blind) continue;
+    for (const side of ['blue', 'red']) {
+      if (!g[side].picks.some((p) => p.hero === heroId)) continue;
+      picks += 1;
+      const won = g.winnerSide === side;
+      if (won) wins += 1;
+      const oppSide = side === 'blue' ? 'red' : 'blue';
+      const oppHeroes = [...new Set(g[oppSide].picks.map((p) => p.hero))];
+      for (const h of oppHeroes) {
+        const e = heroMap.get(h) ?? { heroId: h, games: 0, wins: 0, losses: 0 };
+        e.games += 1;
+        if (won) e.wins += 1; else e.losses += 1;
+        heroMap.set(h, e);
+      }
+      for (let i = 0; i < oppHeroes.length; i++) {
+        for (let j = i + 1; j < oppHeroes.length; j++) {
+          const a = oppHeroes[i], b = oppHeroes[j];
+          const [lo, hi] = a < b ? [a, b] : [b, a];
+          const e = comboMap.get(`${lo}|${hi}`) ?? { heroA: lo, heroB: hi, games: 0, wins: 0, losses: 0 };
+          e.games += 1;
+          if (won) e.wins += 1; else e.losses += 1;
+          comboMap.set(`${lo}|${hi}`, e);
+        }
+      }
+    }
+  }
+  return { picks, wins, heroMap, comboMap };
+}
+
 /* ================= 三位置组合（战队分析页） ================= */
 
 /** 6. 三位置组合（阵容按下标 0-4：对抗/打野/中/发育/游走） */

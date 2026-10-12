@@ -13,7 +13,7 @@ import {
 } from '../src/record/checks.js';
 import {
   seriesRoundKeys, groupByRound, allTeamStats, comboStats, roundDefs, customStageDefs, floorShiftRows,
-  comboShiftRows, trioShiftRows,
+  comboShiftRows, trioShiftRows, heroRivalStats,
 } from '../src/analysis/compute.js';
 
 let failed = 0;
@@ -225,6 +225,31 @@ const mkRound = (seriesId, eventId, date, note = '', stage = '常规赛') => ({
   const trioB = new Map([tp('1|2|3', [1, 2, 3], 6), tp('4|5|6', [4, 5, 6], 1), tp('7|8|9', [7, 8, 9], 3)]);
   const tr = trioShiftRows(trioA, 10, trioB, 20);
   ok('[trio-shift] 三英雄组合变化：单侧不足/缺失被排除', tr.length === 1 && tr[0].key === '1|2|3' && tr[0].heroes.join() === '1,2,3' && tr[0].diff === 10, JSON.stringify(tr));
+}
+
+/* ================= 对位克制（heroRivalStats） ================= */
+{
+  const gameOf = (blueHeroes, redHeroes, blueWins) => ({
+    winnerSide: blueWins ? 'blue' : 'red',
+    blue: { teamId: 1, teamName: 'A', picks: blueHeroes.map((hero, playerIdx) => ({ hero, playerIdx })) },
+    red: { teamId: 2, teamName: 'B', picks: redHeroes.map((hero, playerIdx) => ({ hero, playerIdx })) },
+  });
+  const games = [
+    gameOf([100, 101, 102, 103, 104], [200, 201, 202, 203, 204], true),  // 100 蓝方胜，对面 200-204
+    gameOf([100, 101, 105, 106, 107], [200, 205, 206, 207, 208], false), // 100 蓝方负，对面含 200
+    gameOf([110, 111, 112, 113, 114], [100, 120, 121, 122, 123], true), // 100 红方负（蓝胜）→ 对面=蓝方 110-114
+    { ...gameOf([100, 100], [300, 300], true), blind: true },            // 盲选局不计
+  ];
+  const r = heroRivalStats(games, 100);
+  ok('[rival] 出场与胜负（蓝红两侧聚合，盲选局不计）', r.picks === 3 && r.wins === 1);
+  const h200 = r.heroMap.get(200), h110 = r.heroMap.get(110);
+  ok('[rival] 对方英雄：红蓝两向都统计', h200.games === 2 && h200.wins === 1 && h200.losses === 1
+    && h110.games === 1 && h110.losses === 1 && h110.wins === 0);
+  const c1 = r.comboMap.get('200|201'), c2 = r.comboMap.get('110|111');
+  ok('[rival] 组合键 lo|hi 归一 + 胜负独立', c1.games === 1 && c1.wins === 1 && c1.losses === 0
+    && c2.games === 1 && c2.wins === 0 && c2.losses === 1);
+  ok('[rival] 组合数量 = 每局对方 C(5,2)=10', r.comboMap.size === 30, String(r.comboMap.size));
+  ok('[rival] 未出场英雄返回空', heroRivalStats(games, 999).picks === 0 && heroRivalStats(games, 999).heroMap.size === 0);
 }
 
 /* ================= 楼层变化（floorShiftRows） ================= */
