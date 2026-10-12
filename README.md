@@ -58,6 +58,7 @@ npm run start:test -- --reset   # 启动前清空测试数据库（重新预置�
 ## 数据存储
 
 - 数据库：`data/kpl.db`（Node 内置 `node:sqlite`，零原生依赖），可直接复制备份
+- **比赛数据随仓库分发**：clone 后 `npm install && npm start` 即自带全部已录入的系列赛与 BP 数据（测试库 `kpl-test.db` 与 `data/backups/` 快照不入库）
 - 首次启动自动预置 18 支 KPL 战队（2026 赛代名单，见 server/db.mjs PRESET_TEAMS，
   可在「基础数据」页改/删）与 10 个选手昵称作录入提示，不代表任何当前阵容
 - 录入系列赛时，阵容中出现的新选手名会自动进入选手库
@@ -162,4 +163,5 @@ npm run refresh-heroes && npm run build
 ## 声明
 
 英雄数据与头像素材来自王者荣耀官网，版权归腾讯所有；预置战队名单仅为录入便利。
+比赛数据为人工录入的观赛记录，仅供学习与研究使用。
 本项目仅供个人学习、数据整理与模拟推演使用。

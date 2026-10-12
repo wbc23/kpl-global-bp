@@ -14,7 +14,7 @@
 
 ## 运行与工作流
 
-- 项目已开源：https://github.com/wbc23/kpl-global-bp （公开仓库，gh CLI + 设备码登录 wbc23 账号推送）。**数据库 data/、构建产物 dist*、node_modules、.zcode 不入库**（.gitignore），*.bat 经 .gitattributes 锁 CRLF。日常改动仍以测试环境验收 → 用户确认 → 同步生产为准；**推送到 GitHub 不在例行流程内**，用户提出时再 commit+push。gh 在 `/c/Program Files/GitHub CLI/gh.exe`
+- 项目已开源：https://github.com/wbc23/kpl-global-bp （公开仓库，gh CLI + 设备码登录 wbc23 账号推送）。**生产库 data/kpl.db 随仓库公开**（2026-10-12 用户决定公开比赛数据：clone 即得全部对局、随推送自动更新）；data/ 其余内容（backups/、kpl-test.db*、SQLite 临时文件）、构建产物 dist*、node_modules、.zcode 不入库（.gitignore），*.bat 经 .gitattributes 锁 CRLF。**提交 kpl.db 前确认 data/ 下无 kpl.db-journal/-wal 临时文件**（有 = 服务正在写，稍后再提交）。日常改动仍以测试环境验收 → 用户确认 → 同步生产为准；**推送到 GitHub 不在例行流程内**，用户提出时再 commit+push。gh 在 `/c/Program Files/GitHub CLI/gh.exe`
 
 - `npm run dev` = 数据服务(9100) + Vite(5173)；`npm run build` 后 `npm start` 单进程直出 dist
 - **改前端必须 `npm run build`**（服务托管 dist 产物）；改 server/ 需重启服务

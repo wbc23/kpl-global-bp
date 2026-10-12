@@ -5,8 +5,10 @@ node_modules/
 dist/
 dist-test/
 
-# 本地数据（数据库/备份/快照，不入库；仅根目录，不影响 src/data/）
-/data/
+# 本地数据：生产库 data/kpl.db 随仓库公开（比赛数据，clone 即用）；
+# 其余（备份快照、测试库、SQLite 临时文件）不入库，不影响 src/data/
+/data/*
+!/data/kpl.db
 
 # 本地工具工作区
 .zcode/
