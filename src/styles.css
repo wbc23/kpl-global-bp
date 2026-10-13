@@ -867,6 +867,22 @@ html[data-theme='dark'] .sub-chip.in { border-color: #6fce92; }
 .team-card .tc-check.off { visibility: hidden; }
 .tc-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ---------- 英雄热度趋势图（手绘 SVG） ---------- */
+.trend-chart-wrap { padding: 4px 0; }
+.trend-chart { width: 100%; height: auto; display: block; }
+.trend-grid { stroke: var(--line); stroke-width: 1; }
+.trend-axis { fill: var(--text-dim); font-size: 11px; font-family: inherit; }
+.trend-legend { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.trend-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+
+/* ---------- 选手英雄池（行内联展开） ---------- */
+.data-table tr.row-click { cursor: pointer; }
+.data-table tr.row-active td { background: var(--gold-bg); }
+.player-pool-row td { background: var(--panel-2); padding: 10px 14px; }
+.player-pool-summary { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; line-height: 1.7; }
+.player-pool-summary b { color: var(--gold); font-size: 14px; letter-spacing: 1px; }
+.player-pool-box .stat-chip.hero-top { border-color: var(--gold); }
+
 /* ---------- 页脚 ---------- */
 .footer { text-align: center; color: var(--text-dim); opacity: 0.65; font-size: 11px; margin-top: 26px; }
 

@@ -13,7 +13,7 @@ import {
 } from '../src/record/checks.js';
 import {
   seriesRoundKeys, groupByRound, allTeamStats, comboStats, roundDefs, customStageDefs, floorShiftRows,
-  comboShiftRows, trioShiftRows, heroRivalStats,
+  comboShiftRows, trioShiftRows, heroRivalStats, heroTrendRows,
 } from '../src/analysis/compute.js';
 
 let failed = 0;
@@ -250,6 +250,29 @@ const mkRound = (seriesId, eventId, date, note = '', stage = '常规赛') => ({
     && c2.games === 1 && c2.wins === 0 && c2.losses === 1);
   ok('[rival] 组合数量 = 每局对方 C(5,2)=10', r.comboMap.size === 30, String(r.comboMap.size));
   ok('[rival] 未出场英雄返回空', heroRivalStats(games, 999).picks === 0 && heroRivalStats(games, 999).heroMap.size === 0);
+}
+
+/* ================= 英雄月度热度走势（heroTrendRows） ================= */
+{
+  const gameOf = (date, bluePicks, redPicks, blueBans = [], blueWins = true) => ({
+    date, winnerSide: blueWins ? 'blue' : 'red',
+    blue: { teamId: 1, teamName: 'A', picks: bluePicks.map((hero, playerIdx) => ({ hero, playerIdx })), bans: blueBans },
+    red: { teamId: 2, teamName: 'B', picks: redPicks.map((hero, playerIdx) => ({ hero, playerIdx })), bans: [] },
+  });
+  const games = [
+    gameOf('2026-07-02', [2, 3, 4, 5, 6], [10, 11, 12, 13, 14], [100]),   // 7 月：100 被 ban，0 出场
+    gameOf('2026-06-01', [100, 2, 3, 4, 5], [10, 11, 12, 13, 14]),        // 6 月：100 蓝方胜
+    gameOf('2026-06-15', [10, 2, 3, 4, 5], [100, 11, 12, 13, 14]),        // 6 月：100 红方、蓝方胜（100 负）
+    gameOf('2026-08-01', [2, 3, 4, 5, 6], [10, 11, 12, 13, 14]),           // 8 月：100 零出场零 ban
+  ];
+  const rows = heroTrendRows(games, 100);
+  ok('[trend] 月份升序（乱序输入）', rows.map((r) => r.month).join() === '2026-06,2026-07,2026-08', JSON.stringify(rows.map((r) => r.month)));
+  const jun = rows[0], jul = rows[1], aug = rows[2];
+  ok('[trend] 月内聚合与分母 2×局数', jun.games === 2 && jun.picks === 2 && jun.pickWins === 1
+    && jun.pickRate === 50 && jun.winRate === 50 && jun.bpRate === 50);
+  ok('[trend] ban 计入 BP 率、零出场月份为 0', jul.bans === 1 && jul.banRate === 50 && jul.bpRate === 50
+    && aug.picks === 0 && aug.bpRate === 0);
+  ok('[trend] 未出场英雄返回空数组', heroTrendRows(games, 999).length === 3 && heroTrendRows(games, 999)[0].picks === 0);
 }
 
 /* ================= 楼层变化（floorShiftRows） ================= */

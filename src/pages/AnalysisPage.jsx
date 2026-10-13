@@ -6,7 +6,7 @@ import { LANE_BADGES, DEFAULT_STAGES, CUSTOM_STAGE_ORDER } from '../data/constan
 import {
   flattenGames, filterGames, heroStats, teamStats, comboStats,
   overviewStats, PAIR_DEFS, pct,
-  heroCounterScene, heroCounteredByScene, comboCounterScene, heroRivalStats,
+  heroCounterScene, heroCounteredByScene, comboCounterScene, heroRivalStats, heroTrendRows,
   TRIO_DEFS, trioComboStats,
   globalComboStats, globalTrioStats, globalFiveStats,
   heroShiftRows, comboShiftRows, trioShiftRows, floorShiftRows,
@@ -473,6 +473,8 @@ function HeroTab({ games, heroesById }) {
         )}
       </Section>
 
+      <HeroTrendSection games={games} heroesById={heroesById} />
+
       <GlobalComboSection games={games} heroesById={heroesById} />
       <GlobalTrioSection games={games} heroesById={heroesById} />
       <GlobalFiveSection games={games} heroesById={heroesById} />
@@ -524,6 +526,96 @@ function RivalRows({ rows, heroesById, combo }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/* ---- 英雄热度趋势：按自然月的 Pick / Ban / BP 率走势（手绘 SVG，不引图表库） ---- */
+const TREND_SERIES = [
+  { key: 'pickRate', label: 'Pick率', color: 'var(--blue)' },
+  { key: 'banRate', label: 'Ban率', color: 'var(--red)' },
+  { key: 'bpRate', label: 'Ban-Pick率', color: 'var(--gold)' },
+];
+
+function HeroTrendChart({ rows, labelOf }) {
+  const W = 760, H = 250, padL = 40, padR = 14, padT = 14, padB = 42;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const x = (i) => padL + (rows.length === 1 ? iw / 2 : (i * iw) / (rows.length - 1));
+  const y = (v) => padT + ((100 - v) / 100) * ih;
+  return (
+    <div className="trend-chart-wrap">
+      <svg viewBox={`0 0 ${W} ${H}`} className="trend-chart" role="img">
+        {[0, 25, 50, 75, 100].map((v) => (
+          <g key={v}>
+            <line x1={padL} x2={W - padR} y1={y(v)} y2={y(v)} className="trend-grid" />
+            <text x={padL - 6} y={y(v) + 4} textAnchor="end" className="trend-axis">{v}</text>
+          </g>
+        ))}
+        {rows.map((r, i) => (
+          <g key={r.month}>
+            <text x={x(i)} y={H - padB + 16} textAnchor="middle" className="trend-axis">{labelOf(r.month)}</text>
+            <text x={x(i)} y={H - padB + 30} textAnchor="middle" className="trend-axis">{r.games}局</text>
+          </g>
+        ))}
+        {TREND_SERIES.map((s) => (
+          <g key={s.key}>
+            <polyline
+              points={rows.map((r, i) => `${x(i)},${y(r[s.key])}`).join(' ')}
+              fill="none" strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round"
+              style={{ stroke: s.color }}
+            />
+            {rows.map((r, i) => (
+              <circle key={r.month} cx={x(i)} cy={y(r[s.key])} r="3.6" style={{ fill: s.color }}>
+                <title>{`${r.month} · ${r.games}局 · Pick ${r.picks}（${r.pickRate}%）· Ban ${r.bans}（${r.banRate}%）· BP率 ${r.bpRate}%${r.picks ? ` · 选用胜率 ${r.winRate}%` : ''}`}</title>
+              </circle>
+            ))}
+          </g>
+        ))}
+      </svg>
+      <div className="trend-legend">
+        {TREND_SERIES.map((s) => (
+          <span className="stat-chip" key={s.key}>
+            <span className="trend-dot" style={{ background: s.color }} />{s.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HeroTrendSection({ games, heroesById }) {
+  const [heroId, setHeroId] = useState('');
+  const heroOptions = useMemo(() => [...heroStats(games).values()]
+    .filter((s) => s.picks + s.bans > 0)
+    .sort((a, b) => (b.picks + b.bans) - (a.picks + a.bans))
+    .slice(0, 40), [games]);
+  const effHeroId = Number(heroId) || heroOptions[0]?.heroId;
+  const rows = useMemo(() => (effHeroId ? heroTrendRows(games, effHeroId) : []), [games, effHeroId]);
+  // 月份标签：同年只显示"6月"，跨年显示完整 ym
+  const years = useMemo(() => new Set(rows.map((r) => r.month.slice(0, 4))), [rows]);
+  const labelOf = (ym) => (years.size > 1 ? ym : `${Number(ym.slice(5))}月`);
+
+  return (
+    <Section
+      title="英雄热度趋势（按自然月，分母 = 该月 2×局数）"
+      extra={
+        <select value={heroId} onChange={(e) => setHeroId(e.target.value)}
+          title="按 Pick+Ban 热度列出前 40 名英雄">
+          {heroOptions.map((s) => (
+            <option key={s.heroId} value={s.heroId}>
+              {heroesById[s.heroId]?.name ?? s.heroId}（Pick+Ban {s.picks + s.bans}）
+            </option>
+          ))}
+        </select>
+      }
+    >
+      {rows.length === 0 ? <div className="empty-hint">当前筛选下暂无样本</div> : (
+        <HeroTrendChart rows={rows} labelOf={labelOf} />
+      )}
+      <div className="mini-note">
+        月份按系列赛日期归组；该英雄零出场的月份也画成 0 点（BP 率归零本身是版本信号）。
+        悬停各点可看当月明细（局数 / Pick / Ban / 选用胜率）；月份样本少时波动大，结合横轴的局数判断。
+      </div>
+    </Section>
   );
 }
 
@@ -1287,10 +1379,11 @@ function HeroUseTable({ rows, heroesById, showWin, showBan }) {
   );
 }
 
-/* ================= 选手分析（需求 9：全选手一览） ================= */
+/* ================= 选手分析（需求 9：全选手一览 + 点击行展开英雄池） ================= */
 function PlayerTab({ games, heroesById }) {
   const { sort, setSort, apply } = useSort('picks');
   const [playerQuery, setPlayerQuery] = useState('');
+  const [openName, setOpenName] = useState(''); // 展开英雄池的选手
   const [visCount, setVisCount] = useState(HERO_PAGE);
   useEffect(() => { setVisCount(HERO_PAGE); }, [playerQuery]);
 
@@ -1341,26 +1434,39 @@ function PlayerTab({ games, heroesById }) {
           </thead>
           <tbody>
             {shown.map((s) => (
-              <tr key={s.name}>
-                <td className="player-name">{s.name}</td>
-                <td>{s.mainTeam}</td>
-                <td className="num">{s.picks}</td>
-                <td><WrBar value={s.winRate} /></td>
-                <td className="num blue-text">{s.blueRate}%</td>
-                <td className="num red-text">{s.redRate}%</td>
-                <td>
-                  <div className="fg-chips">
-                    {s.topHeroes.map((u) => (
-                      <span className="stat-chip" key={u.heroId}
-                        title={`${heroesById[u.heroId]?.name ?? u.heroId} · ${u.picks} 场 · 胜率 ${pct(u.wins, u.picks)}%`}>
-                        <HeroAvatar hero={heroesById[u.heroId]} size={18} />
-                        {heroesById[u.heroId]?.name ?? u.heroId}
-                        <b>{u.picks}</b>
-                      </span>
-                    ))}
-                  </div>
-                </td>
-              </tr>
+              <React.Fragment key={s.name}>
+                <tr
+                  className={`row-click ${openName === s.name ? 'row-active' : ''}`}
+                  title="点击展开 / 收起英雄池"
+                  onClick={() => setOpenName(openName === s.name ? '' : s.name)}
+                >
+                  <td className="player-name">{s.name}</td>
+                  <td>{s.mainTeam}</td>
+                  <td className="num">{s.picks}</td>
+                  <td><WrBar value={s.winRate} /></td>
+                  <td className="num blue-text">{s.blueRate}%</td>
+                  <td className="num red-text">{s.redRate}%</td>
+                  <td>
+                    <div className="fg-chips">
+                      {s.topHeroes.map((u) => (
+                        <span className="stat-chip" key={u.heroId}
+                          title={`${heroesById[u.heroId]?.name ?? u.heroId} · ${u.picks} 场 · 胜率 ${pct(u.wins, u.picks)}%`}>
+                          <HeroAvatar hero={heroesById[u.heroId]} size={18} />
+                          {heroesById[u.heroId]?.name ?? u.heroId}
+                          <b>{u.picks}</b>
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+                {openName === s.name && (
+                  <tr className="player-pool-row">
+                    <td colSpan={7}>
+                      <PlayerPoolBox s={s} heroesById={heroesById} />
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
             ))}
           </tbody>
         </table>
@@ -1381,6 +1487,36 @@ function PlayerTab({ games, heroesById }) {
         </div>
       )}
     </Section>
+  );
+}
+
+/* ---- 单选手英雄池：选手行点击后内联展开 ---- */
+function PlayerPoolBox({ s, heroesById }) {
+  const heroes = [...s.heroUse.values()].sort((a, b) => b.picks - a.picks);
+  const teams = [...s.teamUse.entries()].sort((a, b) => b[1] - a[1]);
+  const top = heroes[0];
+  return (
+    <div className="player-pool-box">
+      <div className="player-pool-summary">
+        <b>{s.name}</b> · 出场 {s.picks} 局 · 胜率 {s.winRate}% · 英雄池 {heroes.length} 名英雄
+        {teams.length > 0 && <> · 效力：{teams.map(([t, n]) => `${t}（${n} 局）`).join('、')}</>}
+        {top && <> · 最常用：{heroesById[top.heroId]?.name ?? top.heroId}（{top.picks} 场 {pct(top.wins, top.picks)}%）</>}
+      </div>
+      <div className="fg-chips">
+        {heroes.map((u, i) => {
+          const wr = pct(u.wins, u.picks);
+          return (
+            <span className={`stat-chip ${i === 0 ? 'hero-top' : ''}`} key={u.heroId}
+              title={`${heroesById[u.heroId]?.name ?? u.heroId} · ${u.picks} 场 · 胜率 ${wr}% · 占该选手出场 ${pct(u.picks, s.picks)}%`}>
+              <HeroAvatar hero={heroesById[u.heroId]} size={18} />
+              {heroesById[u.heroId]?.name ?? u.heroId}
+              <b>{u.picks}</b>
+              <span className={wr >= 60 ? 'delta-up' : wr < 40 ? 'delta-down' : 'dim'}>{wr}%</span>
+            </span>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

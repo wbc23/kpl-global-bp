@@ -623,6 +623,31 @@ export function groupByMonth(games) {
   return map;
 }
 
+/** 8b. 某英雄按自然月的热度走势：各月 Pick / Ban / BP 率（分母 = 该月 2×局数）与选用胜率。
+ * 月份升序（含该英雄零出场的月份，BP 率为 0 也是真实信号）；月内含盲选局照常计入。 */
+export function heroTrendRows(games, heroId) {
+  const rows = [];
+  const byMonth = [...groupByMonth(games).entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  for (const [ym, gs] of byMonth) {
+    const n = gs.length;
+    let picks = 0, pickWins = 0, bans = 0;
+    for (const g of gs) {
+      for (const side of ['blue', 'red']) {
+        const t = g[side];
+        const won = g.winnerSide === side;
+        for (const p of t.picks) if (p.hero === heroId) { picks += 1; if (won) pickWins += 1; }
+        for (const b of t.bans) if (b === heroId) bans += 1;
+      }
+    }
+    rows.push({
+      month: ym, games: n, picks, pickWins, bans,
+      pickRate: pct(picks, n * 2), banRate: pct(bans, n * 2),
+      bpRate: pct(picks + bans, n * 2), winRate: pct(pickWins, picks),
+    });
+  }
+  return rows;
+}
+
 /** 8. 两个月份的英雄 Ban-Pick 率变化（要求两月样本 Pick+Ban 各 ≥3），按 |变化| 降序 */
 export function heroShiftRows(statsA, gamesA, statsB, gamesB, topN = 12) {
   const rows = [];
