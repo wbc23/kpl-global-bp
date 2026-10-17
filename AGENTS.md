@@ -35,7 +35,7 @@
 
 **BP 引擎**（src/bp/，模拟器与录入共用）：rules.js 的 STANDARD_FLOW 定义 5Ban5Pick 顺序（首轮 Ban 蓝红各 2、二轮 Ban 红先手各 3）；validate.js 是唯一校验入口；store.js 模拟器状态机；录入状态机 src/record/recording.js（蓝红逐局轮换、视角映射 toViewState、草稿 localStorage 多槽位自动保存/续录）；src/record/checks.js 为纯函数整体校验（见下）。
 
-- **全局 BP 锁定 = 整队口径**：该方任一选手用过的英雄，本方后续常规局任何选手都不可再选；对手不受影响（sideLocks/usedHeroesBySide 按蓝红视角、名字无关，兼容逐局换人）
+- **全局 BP 锁定 = 整队口径**：该方任一选手用过的英雄，本方后续常规局任何选手都不可再选；对手不受影响（sideLocks/usedHeroesBySide 按蓝红视角、名字无关，兼容逐局换人）。BP 面板「已用英雄」按位置分组展示且**含被换下的选手**（usedHeroGroups：按选手名聚合、换下选手（player=-1）按出场次数最多的位置归组、组内当前选手在前；perspectiveGames 的 pick 带 slot=该局原位置与 name），同位置多人时组内紧凑+左侧虚线；锁定校验仍用 usedHeroesByPlayer（只按当前阵容下标，-1 跳过），两条链路勿混用
 - **巅峰对决 = 仅 BO7 第 7 局自动盲选**（无手动开关）：解除锁定、蓝红各 1 交替选人、双方可同英雄、不遮对方阵容；DeciderBanner 鎏金氛围（.decider-* 样式）
 - 空禁记 `hero: null`（validate/分析/回放均兼容）；BP 提示条"x方x楼 选择/禁用英雄"，Ban 手无楼层
 - **补录保存 = 尾部追加**：继续录入会话建立时记录 `meta.baseGames`（当时库内局数），保存只传新录的局 + `fromGameNo`，服务端（PUT /api/series/:id/games）只替换该局号之后的对局——期间经回放修正的旧局不被草稿旧副本覆盖；库内局数与基准不符 → 409 冲突提示。不带 fromGameNo = 整体替换（旧客户端兼容）

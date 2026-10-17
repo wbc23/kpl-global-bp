@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { getFlow } from '../bp/rules.js';
-import { picksOf, usedHeroesByPlayer } from '../bp/store.js';
+import { picksOf, usedHeroGroups } from '../bp/store.js';
 import { SIDE } from '../data/constants.js';
 import HeroAvatar from './HeroAvatar.jsx';
 
 /**
  * 侧边队伍面板：5 名选手的本局英雄 + 全局 BP 已锁定（用过）的英雄。
+ * 已用英雄按位置分组展示，含被换下的选手（同位置的当前选手与替补靠近排列）。
  * 点击已选英雄可发起"互换/移动"：再点另一行选手交换两人的英雄（目标无英雄则移动过去）
  * side: 'blue' | 'red'
  */
@@ -13,7 +14,7 @@ export default function TeamPanel({ side, state, dispatch, heroesById }) {
   const cur = state.current;
   const isActing = cur && getFlow(cur.blind)[cur.actions.length]?.side === side;
   const picks = cur ? picksOf(cur, side) : [];
-  const used = usedHeroesByPlayer(state.games)[side];
+  const usedGroups = usedHeroGroups(state.games, side, state[side].players);
 
   // 互换模式：swapFrom 为发起行的位置下标
   const [swapFrom, setSwapFrom] = useState(null);
@@ -67,15 +68,17 @@ export default function TeamPanel({ side, state, dispatch, heroesById }) {
 
       <div className="used-section">
         <div className="used-title">已用英雄（全局锁定）</div>
-        {[...used[0]].length === 0 && used.every((s) => s.size === 0) ? (
+        {usedGroups.length === 0 ? (
           <div className="used-empty">暂无</div>
-        ) : (
-          state[side].players.map((_, i) =>
-            used[i].size > 0 && (
-              <div className="used-row" key={i}>
-                <span className="used-player">{state[side].players[i]}</span>
+        ) : usedGroups.map((g) => (
+          <div className={`used-slot-group ${g.rows.length > 1 ? 'multi' : ''}`} key={g.slot}>
+            {g.rows.map((r) => (
+              <div className={`used-row ${r.current ? '' : 'sub'}`} key={r.name}>
+                <span className="used-player" title={r.current ? undefined : '本系列赛上场过、当前不在阵中（其英雄仍整队锁定）'}>
+                  {r.name}{r.current ? '' : '·'}
+                </span>
                 <span className="used-heroes">
-                  {[...used[i]].map((id) => (
+                  {[...r.heroes].map((id) => (
                     <span className="used-chip" key={id} title={heroesById[id]?.name}>
                       <HeroAvatar hero={heroesById[id]} size={20} />
                       {heroesById[id]?.name ?? id}
@@ -83,9 +86,9 @@ export default function TeamPanel({ side, state, dispatch, heroesById }) {
                   ))}
                 </span>
               </div>
-            )
-          )
-        )}
+            ))}
+          </div>
+        ))}
       </div>
     </div>
   );

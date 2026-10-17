@@ -6,7 +6,7 @@
  * 改动 BP 规则、录入校验或分析口径后跑一遍；新增修复时请把回归场景补进来。
  */
 import { getFlow } from '../src/bp/rules.js';
-import { usedHeroesByPlayer } from '../src/bp/store.js';
+import { usedHeroesByPlayer, usedHeroGroups } from '../src/bp/store.js';
 import { heroMatch } from '../src/data/heroSearch.js';
 import {
   sideUsedFromGames, blueFlipConflicts, editSaveConflicts, effRoster, perspectiveGames,
@@ -154,6 +154,36 @@ function validFlowActions({ bluePickOverride = {} } = {}) {
   );
   const pick2 = out2[0].bluePicks[0];
   ok('[roster] perspective：翻转映射+null回退（p2）', pick2.name === 'p2' && pick2.player === 1, JSON.stringify(pick2));
+}
+
+/* ================= 已用英雄分组（换人后含被换下选手） ================= */
+{
+  const mkGame = (roster1, hero, player) => ({
+    blueFirst: 1, blind: false, winner: 'blue', roster1, roster2: ['q1', 'q2', 'q3', 'q4', 'q5'],
+    actions: [{ type: 'pick', side: 'blue', hero, player }],
+  });
+  const A = ['p1', 'p2', 'p3', 'yisheng', 'p5'];
+  const B = ['q1', 'q2', 'q3', 'q4', 'q5'];
+  const cur = ['p1', 'p2', 'p3', 'tao', 'p5']; // 换人：pos4 一笙→涛
+  const games = perspectiveGames([
+    mkGame(A, 105, 3),    // 第1局：一笙(pos4) 用 105
+    mkGame(A, 107, 0),    // 第2局：p1 用 107
+    mkGame(cur, 106, 3),  // 第3局：涛(pos4) 用 106
+  ], 1, cur, B, A, B);
+  const groups = usedHeroGroups(games, 'blue', cur);
+  ok('[used-groups] 换下选手保留、同位置组内当前选手在前', (() => {
+    const g3 = groups.find((g) => g.slot === 3);
+    return groups.length === 2
+      && g3.rows.length === 2
+      && g3.rows[0].name === 'tao' && g3.rows[0].current && g3.rows[0].heroes.has(106)
+      && g3.rows[1].name === 'yisheng' && !g3.rows[1].current && g3.rows[1].heroes.has(105);
+  })(), JSON.stringify(groups));
+  ok('[used-groups] 无 name/slot 的模拟器历史局回退 player 下标', (() => {
+    const simGames = [{ bluePicks: [{ player: 0, hero: 200 }, { player: 2, hero: 201 }] }];
+    const g = usedHeroGroups(simGames, 'blue', ['s1', 's2', 's3', 's4', 's5']);
+    return g.length === 2 && g[0].rows[0].name === 's1' && g[0].rows[0].current
+      && g[1].rows[0].name === 's3';
+  })());
 }
 
 /* ================= 轮次归属（#4） ================= */

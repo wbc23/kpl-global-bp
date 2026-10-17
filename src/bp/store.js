@@ -50,6 +50,37 @@ export function usedHeroesBySide(games) {
   return res;
 }
 
+/** 已用英雄的展示分组（含被换下的选手）：按位置归组，同位置的当前选手在前、替补在后。
+ *  与 usedHeroesByPlayer 不同——后者只按当前阵容下标聚合（换下选手 player=-1 被跳过，用于锁定校验），
+ *  这里按选手名聚合以保留换下选手的已用英雄，slot 取其出场位置（无 slot 的模拟器历史局回退到 player 下标）。
+ *  返回 [{ slot, rows: [{ name, heroes: Set, current }] }]，仅含有内容的组。 */
+export function usedHeroGroups(games, side, players) {
+  const byName = new Map();
+  for (const g of games) {
+    for (const p of g[`${side}Picks`] || []) {
+      const name = p.name ?? players?.[p.player];
+      if (!name) continue;
+      if (!byName.has(name)) byName.set(name, { name, heroes: new Set(), slotCount: new Map() });
+      const e = byName.get(name);
+      e.heroes.add(p.hero);
+      const slot = Number.isInteger(p.slot) ? p.slot : p.player;
+      if (slot >= 0 && slot <= 4) e.slotCount.set(slot, (e.slotCount.get(slot) || 0) + 1);
+    }
+  }
+  const groups = Array.from({ length: 5 }, (_, i) => ({ slot: i, rows: [] }));
+  for (const e of byName.values()) {
+    if (e.heroes.size === 0) continue;
+    const curIdx = players ? players.indexOf(e.name) : -1;
+    if (curIdx >= 0) { groups[curIdx].rows.push({ name: e.name, heroes: e.heroes, current: true }); continue; }
+    // 换下的选手：按出场次数最多的位置归组（跨位置出场取主力位置）
+    const best = [...e.slotCount.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (best) groups[best[0]].rows.push({ name: e.name, heroes: e.heroes, current: false });
+  }
+  return groups
+    .map((g) => ({ ...g, rows: g.rows.sort((a, b) => (b.current ? 1 : 0) - (a.current ? 1 : 0) || b.heroes.size - a.heroes.size) }))
+    .filter((g) => g.rows.length > 0);
+}
+
 export function picksOf(game, side) {
   return game.actions.filter((a) => a.type === 'pick' && a.side === side)
     .map((a) => ({ player: a.player, hero: a.hero }));

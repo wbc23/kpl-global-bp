@@ -53,7 +53,8 @@ export function perspectiveGames(recGames, curBlueFirst, curRoster1, curRoster2,
         const team = teamOfSide(a.side);
         const name = rosterForTeam(team)[a.player];
         const idx = curRosterForTeam(team).indexOf(name);
-        return { player: idx, hero: a.hero, name };
+        // slot = 该局原阵容的位置下标（0-4）：换下选手 player 为 -1，但位置信息保留（已用英雄按位置分组展示用）
+        return { player: idx, hero: a.hero, name, slot: a.player };
       });
     const bans = (side) => g.actions
       .filter((a) => a.type === 'ban' && toSide(a.side) === side)

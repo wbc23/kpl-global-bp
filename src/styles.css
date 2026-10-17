@@ -302,7 +302,12 @@ html[data-theme='dark'] .lane-roam   { color: #e8c56b; }
 .used-section { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
 .used-title { font-size: 11px; color: var(--text-dim); letter-spacing: 1px; margin-bottom: 8px; }
 .used-empty { font-size: 12px; color: var(--text-dim); opacity: 0.6; }
-.used-row { display: flex; gap: 6px; margin-bottom: 6px; align-items: flex-start; }
+/* 已用英雄按位置分组：组内行更紧凑；同位置多人（逐局换人）加左侧虚线示意、换下选手略淡 */
+.used-slot-group { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+.used-slot-group:last-child { margin-bottom: 0; }
+.used-slot-group.multi { border-left: 2px dashed var(--line-strong); padding-left: 6px; }
+.used-row { display: flex; gap: 6px; align-items: flex-start; }
+.used-row.sub .used-player { opacity: 0.7; }
 .used-player { font-size: 11px; color: var(--text-dim); min-width: 40px; padding-top: 3px; }
 .used-heroes { display: flex; flex-wrap: wrap; gap: 4px; }
 .used-chip {
