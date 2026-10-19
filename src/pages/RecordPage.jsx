@@ -619,8 +619,9 @@ function RecordForm({ meta, prefill, seriesList, onCancel, onStart, onMetaChange
           <span className="setup-label">日期</span>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           <span className="setup-label">赛制</span>
-          {[3, 5, 7].map((b) => (
-            <button key={b} className={`chip chip-lg ${bo === b ? 'on' : ''}`} onClick={() => setBo(b)}>BO{b}</button>
+          {[1, 3, 5, 7].map((b) => (
+            <button key={b} className={`chip chip-lg ${bo === b ? 'on' : ''}`} onClick={() => setBo(b)}
+              title={b === 1 ? '单局定胜负；局内 Ban/Pick 流程与常规局相同' : undefined}>BO{b}</button>
           ))}
         </div>
 

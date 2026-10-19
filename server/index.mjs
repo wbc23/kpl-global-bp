@@ -154,7 +154,7 @@ function validateSeriesPayload(p) {
   const need = ['eventId', 'stage', 'date', 'bo', 'team1Id', 'team2Id', 'roster1', 'roster2', 'games'];
   for (const k of need) if (p[k] === undefined || p[k] === null) return `缺少字段 ${k}`;
   if (p.team1Id === p.team2Id) return '两队不能相同';
-  if (![3, 5, 7].includes(p.bo)) return 'BO 只能为 3/5/7';
+  if (![1, 3, 5, 7].includes(p.bo)) return 'BO 只能为 1/3/5/7';
   // 阵容需 5 名且互不重复（同队重名会让选手归属与整队锁定全部错位，与换人/单局修正端点同口径）
   const rosterErr = (r, label) => (!Array.isArray(r) || r.length !== 5)
     ? `${label}阵容需为 5 名选手`

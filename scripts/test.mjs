@@ -5,7 +5,7 @@
  * node 可直接导入：src/record/checks.js、src/bp/{rules,validate,store}.js、src/analysis/compute.js。
  * 改动 BP 规则、录入校验或分析口径后跑一遍；新增修复时请把回归场景补进来。
  */
-import { getFlow } from '../src/bp/rules.js';
+import { getFlow, winsNeeded, isBlindDecider } from '../src/bp/rules.js';
 import { usedHeroesByPlayer, usedHeroGroups } from '../src/bp/store.js';
 import { heroMatch } from '../src/data/heroSearch.js';
 import {
@@ -364,6 +364,14 @@ const mkRound = (seriesId, eventId, date, note = '', stage = '常规赛') => ({
   ok('[combo] 各行胜率独立（1胜0胜）', e1.picks === 1 && e1.wins === 1 && e2.picks === 1 && e2.wins === 0,
     JSON.stringify({ e1, e2 }));
   ok('[combo] 每局产生10个位置对条目', map.size === 20, String(map.size));
+}
+
+/* ================= BO1 赛制（单局定胜负，局内流程与常规局相同） ================= */
+{
+  ok('[bo1] winsNeeded：BO1 一胜收官、其余不变', winsNeeded(1) === 1
+    && winsNeeded(3) === 2 && winsNeeded(5) === 3 && winsNeeded(7) === 4);
+  ok('[bo1] BO1 第 1 局为普通常规局（非盲选，巅峰对决仍仅 BO7 第 7 局）',
+    !isBlindDecider(1, 1) && !isBlindDecider(3, 3) && !isBlindDecider(5, 5) && isBlindDecider(7, 7));
 }
 
 /* ================= 英雄搜索（heroMatch：只做子串匹配，无子序列） ================= */

@@ -3,6 +3,10 @@
 AGENTS.md 只描述**现状**，各功能的来龙去脉、变更日期与用户决策记录在本文件。
 需要考据"为什么是现在这样"时再读；新条目加在最上面。
 
+## 2026-10-17
+
+- **录入赛制新增 BO1**（用户提出：单局定胜负，局内 Ban/Pick 流程与其他赛制相同）。改动极小——winsNeeded/isBlindDecider/FINISH_GAME/大场胜负门槛本就是通用公式，BO1 天然兼容：server validateSeriesPayload 枚举 [3,5,7]→[1,3,5,7]（POST 与遗留 sync 共用）、RecordPage 赛制 chips 加 BO1（悬停提示"单局定胜负；局内流程与常规局相同"）；**模拟器仍 BO3/5/7 未动**（用户仅要求录入）。npm test 53 项（新增 winsNeeded(1)=1、isBlindDecider(1,1)=false 两项）。9101 全流程实测：新建 BO1（广州TTG vs 长沙TES.A）→ BP 界面提示「BO1 · 第 1 局」→ 快速完成（10 Ban + 10 Pick 常规局流程）→ 标胜者后直接收官（完成页"1 : 0（BO1，共 1 局）"，无下一局）→ 保存入库（bo=1、单局、非盲选）→ 列表显示"1 : 0 BO1"且无「继续录入」按钮；测试系列赛已删除清理（库回到 170 场）。用户确认后已同步生产：`npm run build` + 重启生产服务（改了 server 必须重启；重启后以 bo=9 试错请求确认新枚举文案生效）
+
 ## 2026-10-16
 
 - **BP 面板「已用英雄（全局锁定）」纳入被换下的选手，同位置靠近展示**（用户提出：局内常换人，该区应含本场上场过的所有选手及其英雄；同位置选手（如 WB 的涛和一笙）展示上略微靠近）。此前 perspectiveGames 把不在当前阵容的历史 pick 记为 player=-1，usedHeroesByPlayer 与面板渲染都跳过——换下选手用过的英雄在面板上消失（整队锁定本身仍生效，纯展示缺失）。实现：perspectiveGames 的 pick 增加 slot 字段（该局原阵容位置下标）；store.js 新增 usedHeroGroups（按选手名聚合、换下选手按出场次数最多的位置归组、组内当前选手在前替补在后；模拟器历史局无 name/slot 时回退 player 下标）；TeamPanel 已用英雄区按位置分组渲染——同位置多人时组内更紧凑+左侧虚线示意，换下选手名字后缀"·"且略淡（悬停提示"上场过、当前不在阵中，其英雄仍整队锁定"）；**锁定校验链路（usedHeroesByPlayer/SWAP_PLAYERS/SET_GAME_ROSTER/rosterLockConflicts）完全不变**。npm test 51 项（新增 2 项 used-groups 用例）。9101 以系列赛 180（北京WB vs 深圳DYG：第4局 暖阳→安凉、一笙→涛，第5局换回）编辑第 5 局 BP 实测：WB 面板打野组「暖阳（裴擒虎/宫本武藏/橘右京）+ 安凉·（赵云）」、游走组「一笙（少司缘/太乙真人/赵怀真）+ 涛·（张飞）」相邻成组，无换人的 DYG 面板五组布局不变。用户确认后已 `npm run build` 同步生产（两环境产物哈希一致）
