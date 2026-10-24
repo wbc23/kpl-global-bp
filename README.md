@@ -27,7 +27,9 @@ npm test           # 纯函数回归测试（BP 校验/轮次/大场胜负/组�
 npm run status     # 数据与服务现状一览（两库计数、9100/9101 是否在跑）
 ```
 
-> 环境要求：**Node ≥ 22.5**（后端使用内置 `node:sqlite` 模块，无原生依赖）。
+> 环境要求：**Node 22.x ≥ 22.16，或 ≥ 23.8**（后端使用内置 `node:sqlite` 模块，无原生依赖：
+> 22.13 起免实验开关，`copy:test` 依赖的在线备份 `backup()` 自 22.16/23.8 起提供——
+> 23.0–23.7 缺少 backup() 不受支持；版本事实见 [Node 官方文档](https://nodejs.org/api/sqlite.html)）。
 > 端口说明：数据服务默认 **9100**（Windows 下 5173/5174 等常被 Hyper-V
 > 动态保留导致 EACCES）。如需更换：`PORT=9000 npm start`（开发模式
 > Vite 代理会读取同一 `PORT` 环境变量）。
@@ -58,7 +60,7 @@ npm run start:test -- --reset   # 启动前清空测试数据库（重新预置�
 ## 数据存储
 
 - 数据库：`data/kpl.db`（Node 内置 `node:sqlite`，零原生依赖），可直接复制备份
-- **比赛数据随仓库分发**：clone 后 `npm install && npm start` 即自带全部已录入的系列赛与 BP 数据（测试库 `kpl-test.db` 与 `data/backups/` 快照不入库）
+- **比赛数据随仓库分发**：clone 后依次 `npm install && npm run build && npm start` 即自带全部已录入的系列赛与 BP 数据（注意 dist 构建产物不入库，**首次运行必须先 build**；测试库 `kpl-test.db` 与 `data/backups/` 快照亦不入库）
 - 首次启动自动预置 18 支 KPL 战队（2026 赛代名单，见 server/db.mjs PRESET_TEAMS，
   可在「基础数据」页改/删）与 10 个选手昵称作录入提示，不代表任何当前阵容
 - 录入系列赛时，阵容中出现的新选手名会自动进入选手库
@@ -69,6 +71,9 @@ npm run start:test -- --reset   # 启动前清空测试数据库（重新预置�
 ```
 teams(id, name, short)          战队
 players(id, name)               选手库（录入提示用）
+team_rosters(id, event_id, team_id, players, updated_at)
+                                    大名单；players 为名单 JSON，**1–12 名不重复选手**（接口上限），
+                                    前 5 位按位置 0-4、之后为替补；单局出场阵容固定 5 人；(event_id, team_id) 唯一
 events(id, name)                赛事（如 2026 KPL春季赛）
 series(id, event_id, stage, date, bo, team1_id, team2_id,
        roster1, roster2, note)  一场系列赛；roster 为 5 人 JSON（按位置 0-4）
@@ -89,7 +94,7 @@ event_teams(id, event_id, team_id)  赛事参赛战队（无记录=未设置，�
 - 完成页「撤销上一局（改判胜者）」：标记胜者后发现点错，可退回上一局重新标记（系列赛结束页同样有）
 - 回放弹窗「编辑BP」：把该局载入 BP 编辑器（撤销/重做/互换选手/**更换本局出场选手**/换蓝红/**改判本局胜者**），保存只更新该局草稿、阵容与胜者，不影响其他局
 - 回放弹窗「改判」：单局胜者快捷修正（改判后若比分不再达标，列表会重新出现「继续录入」）
-- 删除：系列赛删除后其关联赛程自动恢复“未录入”；BP 内容录错则「编辑BP」修正或删除重录
+- 删除系列赛时，录入自动生成的赛程**镜像行一并删除**；关联的**手工排期**则解除系列赛关联并恢复“未录入”。BP 内容录错则「编辑BP」修正或删除重录
 
 > 历史遗留：`npm run sync`（官方/URL/文本 JSON 抓取→待审区）链路**未使用、不再维护**（用户不需要
 > JSON 导入），文档不再展开；相关代码（scripts/sync.mjs、server/adapters.mjs、/api/sync 端点）保留在原处。
@@ -153,11 +158,12 @@ event_teams(id, event_id, team_id)  赛事参赛战队（无记录=未设置，�
 拼音由生成脚本写入 heroes.json 的 `py` 字段（依赖 devDependency `pinyin-pro`，
 未安装时刷新会沿用旧字段）。部分英雄的主分路按实况人工修正（脚本内
 `LANE_PRIMARY`，如哪吒/夏侯惇/杨戬/元流之子·坦克/梦奇/猪八戒→打野、蚩奼/卢雅那→发育路、张良/赵怀真/墨子→游走、王维→中路），
-生成时排到 `lanes` 最前，作为选人时的默认推荐位置。更新：
+生成时排到 `lanes` 最前，作为选人时的默认推荐位置。更新（与普通前端改动同流程：先测试构建验收，用户确认后再构建生产）：
 
 ```bash
 curl -sL https://pvp.qq.com/web201605/js/herolist.json -o scripts/herolist.raw.json
-npm run refresh-heroes && npm run build
+npm run refresh-heroes && npm run build:test   # 9101 验收
+npm run build                                  # 用户确认后同步生产
 ```
 
 ## 声明

@@ -588,7 +588,9 @@ function HeroTrendSection({ games, heroesById }) {
     .filter((s) => s.picks + s.bans > 0)
     .sort((a, b) => (b.picks + b.bans) - (a.picks + a.bans))
     .slice(0, 40), [games]);
-  const effHeroId = Number(heroId) || heroOptions[0]?.heroId;
+  // 校验选中值仍在当前候选集内：筛选变化后旧选择可能已跌出榜单，
+  // 失效时回退首项——保证下拉显示与曲线/对位计算用的是同一个英雄
+  const effHeroId = heroOptions.find((o) => o.heroId === Number(heroId))?.heroId ?? heroOptions[0]?.heroId;
   const rows = useMemo(() => (effHeroId ? heroTrendRows(games, effHeroId) : []), [games, effHeroId]);
   // 月份标签：同年只显示"6月"，跨年显示完整 ym
   const years = useMemo(() => new Set(rows.map((r) => r.month.slice(0, 4))), [rows]);
@@ -626,7 +628,9 @@ function HeroRivalView({ games, heroesById }) {
     .filter((s) => s.picks > 0)
     .sort((a, b) => (b.picks + b.bans) - (a.picks + a.bans))
     .slice(0, 40), [games]);
-  const effHeroId = Number(heroId) || heroOptions[0]?.heroId;
+  // 校验选中值仍在当前候选集内：筛选变化后旧选择可能已跌出榜单，
+  // 失效时回退首项——保证下拉显示与曲线/对位计算用的是同一个英雄
+  const effHeroId = heroOptions.find((o) => o.heroId === Number(heroId))?.heroId ?? heroOptions[0]?.heroId;
   return (
     <>
       <div className="panel rec-toolbar">
@@ -891,7 +895,7 @@ function GlobalFiveSection({ games, heroesById }) {
   return (
     <Section title="全 KPL 五英雄阵容（出场 ≥2 次 · TOP10）">
       {rows.length === 0 ? (
-        <div className="empty-hint">暂无重复出现的整队阵容（全局 BP 下同系列赛内不会重复，需跨场次积累）</div>
+        <div className="empty-hint">当前筛选范围内暂无出场至少 2 次的五英雄阵容</div>
       ) : (
         <div className="table-wrap">
           <table className="data-table">
@@ -915,7 +919,7 @@ function GlobalFiveSection({ games, heroesById }) {
           </table>
         </div>
       )}
-      <div className="mini-note">整队锁定规则下同一系列赛内不会复用英雄，重复阵容只能来自不同系列赛之间；当前样本少，胜率仅供参考。</div>
+      <div className="mini-note">整队锁定只约束本队在同系列赛常规局内的英雄复用（对手不受影响；BO7 第 7 局盲选双方还可同选同一英雄）——不同队伍之间或盲选局仍可能出现相同阵容；当前样本少，胜率仅供参考。</div>
     </Section>
   );
 }
@@ -928,7 +932,9 @@ function HeroCounterSection({ games, heroesById, heroId }) {
   const comboOptions = useMemo(() => [...combos.values()].sort((a, b) => b.picks - a.picks).slice(0, 40), [combos]);
   const [comboKey, setComboKey] = useState('');
 
-  const effComboKey = comboKey || (comboOptions[0] ? `${comboOptions[0].heroA}|${comboOptions[0].heroB}` : '');
+  // 校验旧组合 key 仍在当前候选集内（筛选变化后可能失效），失效回退首项——与英雄选择同款
+  const effComboKey = (comboKey && comboOptions.some((c) => `${c.heroA}|${c.heroB}` === comboKey) ? comboKey : '')
+    || (comboOptions[0] ? `${comboOptions[0].heroA}|${comboOptions[0].heroB}` : '');
 
   const heroScene = useMemo(
     () => (mode === 'hero' && heroId ? heroCounterScene(games, heroId) : null),
@@ -1177,6 +1183,7 @@ function TeamTab({ games, teams, heroesById }) {
   const scrollTo = (key) => document.getElementById(`team-sec-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   if (teams.length === 0 || ts.games.length === 0) {
+    // 单队无样本只影响单队区块：全部战队总览（基于当前筛选的全部对局）仍要显示
     return (
       <>
         <div className="panel filter-bar">
@@ -1185,8 +1192,9 @@ function TeamTab({ games, teams, heroesById }) {
             {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </div>
+        {teams.length > 0 && <AllTeamsTable games={games} heroesById={heroesById} />}
         <div className="panel empty-hint">
-          {teams.length === 0 ? '暂无战队数据' : '该战队在当前筛选下没有对局'}
+          {teams.length === 0 ? '暂无战队数据' : '该战队在当前筛选下没有对局（上方总览不受影响）'}
         </div>
       </>
     );
@@ -1770,9 +1778,9 @@ function EventTab({ games, allGames, heroesById }) {
     return m;
   }, [allGames]);
   const stagesOf = (eid) => [...(stageGroupsByEvent.get(eid)?.entries() ?? [])];
-  // B 侧只在多赛事时可选（单赛事时隐藏 B 行）；赛段值不在该赛事列表时回退全部
+  // 赛段值不在该赛事列表时回退全部；单赛事也允许 B 侧选赛段（同赛事不同赛段互比）
   const effStageA = stagesOf(effA).some(([s]) => s === stageA) ? stageA : '';
-  const effStageB = eventsByDate.length > 1 && stagesOf(effB).some(([s]) => s === stageB) ? stageB : '';
+  const effStageB = stagesOf(effB).some(([s]) => s === stageB) ? stageB : '';
 
   // 构建两侧对比范围（side）：同一赛事的不同赛段也可互比（如 常规赛 vs 季后赛）；
   // 两侧完全相同（赛事+赛段）时去重为单侧展示
@@ -1874,18 +1882,14 @@ function EventTab({ games, allGames, heroesById }) {
               <option value="">全部赛段</option>
               {stagesOf(effA).map(([st, gs]) => <option key={st} value={st}>{st}（{gs.length} 局）</option>)}
             </select>
-            {eventsByDate.length > 1 && (
-              <>
-                <span className="filter-label">→</span>
-                <select value={String(effB ?? '')} onChange={(e) => { setPickB(e.target.value); setStageB(''); }}>
-                  {eventsByDate.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}（{ev.games.length} 局）</option>)}
-                </select>
-                <select value={effStageB} onChange={(e) => setStageB(e.target.value)} title="可选：只对比该赛事的某个赛段">
-                  <option value="">全部赛段</option>
-                  {stagesOf(effB).map(([st, gs]) => <option key={st} value={st}>{st}（{gs.length} 局）</option>)}
-                </select>
-              </>
-            )}
+            <span className="filter-label">→</span>
+            <select value={String(effB ?? '')} onChange={(e) => { setPickB(e.target.value); setStageB(''); }}>
+              {eventsByDate.map((ev) => <option key={ev.id} value={ev.id}>{ev.name}（{ev.games.length} 局）</option>)}
+            </select>
+            <select value={effStageB} onChange={(e) => setStageB(e.target.value)} title="可选：只对比该赛事的某个赛段">
+              <option value="">全部赛段</option>
+              {stagesOf(effB).map(([st, gs]) => <option key={st} value={st}>{st}（{gs.length} 局）</option>)}
+            </select>
           </>
         }
       >
@@ -1894,7 +1898,7 @@ function EventTab({ games, allGames, heroesById }) {
             <div className="sub-title">{ev.name}（{ev.games.length} 局）</div>
             <div className="three-col">
               <div>
-                <div className="mini-note" title="Ban-Pick 率 ≥ 40%（Pick+Ban ≥ 5 次）视为版本 T0 级。BP 率上限为 50%：每局每英雄最多出场 1 次（被ban或被选二选一），分母为 2×局数">T0 候选（Ban-Pick率≥40%）</div>
+                <div className="mini-note" title="Ban-Pick 率 ≥ 40%（Pick+Ban ≥ 5 次）视为版本 T0 级。常规局 BP 率上限为 50%：每局每英雄最多出场 1 次（被ban或被选二选一），分母为 2×局数；巅峰对决盲选局双方可同选，单局最高 100%">T0 候选（Ban-Pick率≥40%）</div>
                 {ev.t0.length === 0 ? <div className="empty-hint">暂无</div> : (
                   <div className="chip-list">
                     {ev.t0.map((s) => (

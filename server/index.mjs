@@ -32,7 +32,9 @@ app.get('/api/meta', wrap((req, res) => {
   // 当前赛事：最新有系列赛录入的赛事（按系列赛日期，同日取后录入的）；
   // 全部无录入时取最新创建的赛事。各页面的默认赛事以它为准
   const latest = db.prepare('SELECT event_id AS eid FROM series ORDER BY date DESC, id DESC LIMIT 1').get();
-  const currentEventId = latest ? latest.eid : (events.length ? events[events.length - 1].id : null);
+  // 无系列赛时回退"最新创建的赛事"：按自增 id 倒序取首项（events 列表按名称排序，末项≠最新创建）
+  const fallback = db.prepare('SELECT id FROM events ORDER BY id DESC LIMIT 1').get();
+  const currentEventId = latest ? latest.eid : (fallback ? fallback.id : null);
   res.json({ teams, players, events, currentEventId });
 }));
 

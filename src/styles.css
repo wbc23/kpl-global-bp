@@ -254,6 +254,14 @@ html[data-theme='dark'] .lane-roam   { color: #e8c56b; }
 }
 .center-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
+/* ---------- 录入保存期间的全页冻结遮罩（视觉提示；键盘/指针由内容区 inert 阻断） ---------- */
+.save-mask {
+  position: fixed; inset: 0; z-index: 65;
+  background: var(--mask); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--gold); font-size: 16px; font-weight: 700; letter-spacing: 2px;
+}
+
 /* ---------- 录入工具条 ---------- */
 .rec-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; }
 .rec-hint { font-size: 13px; font-weight: 700; }

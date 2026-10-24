@@ -1,8 +1,11 @@
 /**
  * 纯函数回归测试（node scripts/test.mjs / npm test）
  *
- * 覆盖 BP 校验与统计口径的关键回归点，被测模块均为纯 JS（不引 heroes.json），
- * node 可直接导入：src/record/checks.js、src/bp/{rules,validate,store}.js、src/analysis/compute.js。
+ * 覆盖 BP 校验与统计口径的关键回归点。被测模块均为纯 JS，node 可直接导入：
+ * src/record/checks.js、src/record/recording.js（reducer；经 `with { type: 'json' }`
+ * 属性引入 src/data/heroes.json，供 QUICK_COMPLETE 用）、src/bp/{rules,validate,store}.js、
+ * src/analysis/compute.js。覆盖面以纯函数/reducer 为主，不含异步请求、保存生命周期
+ * 与页面交互行为的端到端验证。
  * 改动 BP 规则、录入校验或分析口径后跑一遍；新增修复时请把回归场景补进来。
  */
 import { getFlow, winsNeeded, isBlindDecider } from '../src/bp/rules.js';
@@ -11,6 +14,7 @@ import { heroMatch } from '../src/data/heroSearch.js';
 import {
   sideUsedFromGames, blueFlipConflicts, editSaveConflicts, effRoster, perspectiveGames,
 } from '../src/record/checks.js';
+import { recordingReducer } from '../src/record/recording.js';
 import {
   seriesRoundKeys, groupByRound, allTeamStats, comboStats, roundDefs, customStageDefs, floorShiftRows,
   comboShiftRows, trioShiftRows, heroRivalStats, heroTrendRows,
@@ -183,6 +187,27 @@ function validFlowActions({ bluePickOverride = {} } = {}) {
     const g = usedHeroGroups(simGames, 'blue', ['s1', 's2', 's3', 's4', 's5']);
     return g.length === 2 && g[0].rows[0].name === 's1' && g[0].rows[0].current
       && g[1].rows[0].name === 's3';
+  })());
+}
+
+/* ================= 保存会话竞态（B01） ================= */
+{
+  const mk = (sid) => ({ phase: 'done', meta: { sessionId: sid }, games: [], current: null });
+  ok('[save-race] 空状态收到迟到的 SAVED 不崩且保持 null', recordingReducer(null, { type: 'SAVED', sessionId: 's1' }) === null);
+  ok('[save-race] 空状态收到其他迟到 action 同样忽略', recordingReducer(null, { type: 'ACT', kind: 'ban', side: 'blue', hero: 1 }) === null);
+  ok('[save-race] sessionId 不匹配的 SAVED 被忽略（保护另一录入会话的草稿不被误清）', (() => {
+    const st = mk('s1');
+    const out = recordingReducer(st, { type: 'SAVED', sessionId: 's2' });
+    return out === st && out.phase === 'done';
+  })());
+  ok('[save-race] 匹配的 SAVED 置 saved（不带 sessionId 的旧调用兼容）', (() => {
+    const out1 = recordingReducer(mk('s1'), { type: 'SAVED', sessionId: 's1' });
+    const out2 = recordingReducer(mk('s1'), { type: 'SAVED' });
+    return out1.phase === 'saved' && out2.phase === 'saved';
+  })());
+  ok('[save-race] @@RESET 在空状态上仍可建立新会话', (() => {
+    const out = recordingReducer(null, { type: '@@RESET', recording: mk('s9') });
+    return out?.meta.sessionId === 's9';
   })());
 }
 

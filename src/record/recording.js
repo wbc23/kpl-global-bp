@@ -6,7 +6,8 @@ import { sideUsedFromGames, effRoster, perspectiveGames } from './checks.js';
 // perspectiveGames 移至 checks.js（纯函数、node 可直测）；保留导出以免外部引用失效
 export { perspectiveGames };
 import { LANE_BADGES } from '../data/constants.js';
-import heroesData from '../data/heroes.json';
+// with 属性：node ESM（回归测试直导本文件）要求 JSON 导入带类型属性；Vite5/Rollup4 同样支持
+import heroesData from '../data/heroes.json' with { type: 'json' };
 
 /**
  * 比赛录入状态机。
@@ -163,6 +164,9 @@ export function toViewState(rec) {
 }
 
 export function recordingReducer(state, action) {
+  // 空状态守卫：会话已退出（@@RESET 置 null）后迟到的旧 action 一律忽略，
+  // 防止读 null.phase 崩溃或误标另一会话（保存竞态见 doSave 的 sessionId 绑定）
+  if (state === null && action.type !== '@@RESET') return state;
   switch (action.type) {
     case '@@RESET':
       return action.recording ?? null;
@@ -326,8 +330,10 @@ export function recordingReducer(state, action) {
     }
 
     case 'SAVED': {
-      // 完整保存（done）与部分保存（recording，"保存已录 X 局"）都会走到这里结束会话
+      // 完整保存（done）与部分保存（recording，"保存已录 X 局"）都会走到这里结束会话。
+      // 保存请求在途期间用户可能已暂存退出或切到另一场录入：sessionId 不匹配的迟到 SAVED 直接忽略
       if (state.phase !== 'done' && state.phase !== 'recording') return state;
+      if (action.sessionId && action.sessionId !== state.meta.sessionId) return state;
       return { ...state, phase: 'saved' };
     }
 

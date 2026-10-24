@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { useEscape } from '../app.js';
 import { DEFAULT_PLAYERS, LANE_BADGES } from '../data/constants.js';
@@ -13,19 +13,46 @@ export default function RosterPage() {
   const [teamSetup, setTeamSetup] = useState(false);
   const [editing, setEditing] = useState(null); // {teamId, roster?}
   const [error, setError] = useState('');
+  // 当前赛事的实时引用 + 递增请求序号：reload 与 eventId effect 共用，
+  // 响应必须"仍是最新请求且属于当前赛事"才回写（拦 A→B→A 及并发中的旧结果）
+  const eventIdRef = useRef(eventId);
+  useEffect(() => { eventIdRef.current = eventId; }, [eventId]);
+  const reqSeqRef = useRef(0);
+  const [eventReady, setEventReady] = useState(false);
+  const [eventLoadErr, setEventLoadErr] = useState('');
+
+  const fetchEventData = (id) => {
+    const seq = ++reqSeqRef.current;
+    const ok = () => eventIdRef.current === id && seq === reqSeqRef.current;
+    setEventReady(false);
+    setEventLoadErr('');
+    let doneR = false, doneT = false;
+    const mark = () => { if (doneR && doneT) setEventReady(true); };
+    api.rosters(id)
+      .then((r) => { if (ok()) { setRosters(r); doneR = true; mark(); } })
+      .catch(() => { if (ok()) setEventLoadErr('大名单加载失败'); });
+    api.eventTeams(id)
+      .then((ids) => { if (ok()) { setEventTeamIds(ids.length ? ids : null); doneT = true; mark(); } })
+      .catch(() => { if (ok()) setEventLoadErr('参赛战队加载失败'); });
+  };
 
   const reload = async (evId) => {
     try {
-      const m = await api.meta();
-      setMeta(m);
       const useId = evId ?? eventId;
-      if (useId) setRosters(await api.rosters(useId));
-      else setRosters([]);
+      if (useId) {
+        // 名单编辑器的保存完成回调可能带着旧赛事（A）调用 reload：仅当目标仍属当前
+        // 赛事才发起事件数据刷新——否则 fetchEventData(A) 会先递增请求序号、把当前
+        // 赛事（B）的在途加载作废，随后 A 的响应又被赛事校验拒收，B 永远停在未就绪（N03）
+        if (eventIdRef.current === useId) fetchEventData(useId);
+      } else setRosters([]);
+      const m = await api.meta();
+      if (m) setMeta(m);
       setError('');
     } catch (e) {
       setError(`数据服务不可达：${e.message}`);
     }
   };
+
   useEffect(() => { reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 默认选中"当前赛事"（最近有录入的赛事；无录入时回退最新创建的），其次第一个赛事
@@ -35,20 +62,23 @@ export default function RosterPage() {
     }
   }, [meta]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (eventId) {
-      setEditing(null);
-      setEventTeamIds(null);
-      api.rosters(eventId).then(setRosters).catch(() => {});
-      api.eventTeams(eventId).then((ids) => setEventTeamIds(ids.length ? ids : null)).catch(() => {});
-    }
-  }, [eventId]);
+    if (!eventId) { setRosters([]); setEventTeamIds(null); setEventReady(false); return; }
+    setEditing(null);
+    // 切换瞬间先清空并置未就绪：加载窗口/失败时「参赛战队」「登记」按钮禁用——
+    // 不把"尚未知晓"当成"未设置参赛队/未登记"开放编辑
+    setRosters([]);
+    setEventTeamIds(null);
+    fetchEventData(eventId);
+  }, [eventId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rosterByTeam = useMemo(() => new Map(rosters.map((r) => [r.teamId, r])), [rosters]);
   // 参赛队（未设置时回退全部战队）；已登记分母随之。meta 未加载完为 null，先回退空数组
   const shownTeams = useMemo(() => (
     !meta ? [] : (eventTeamIds ? meta.teams.filter((t) => eventTeamIds.includes(t.id)) : meta.teams)
   ), [meta, eventTeamIds]);
-  const registered = rosters.length;
+  // 分子与分母同口径：只统计当前展示的（参赛）战队中已登记名单的数量——
+  // 减少参赛队后历史名单保留时，不会出现"已登记 18/12 支"的分子大于分母
+  const registered = shownTeams.filter((t) => rosterByTeam.has(t.id)).length;
 
   // 快捷新建赛事（与录入表单同款）：赛季开始先在此建赛事并登记名单，再去录入比赛
   const promptAddEvent = async () => {
@@ -74,8 +104,8 @@ export default function RosterPage() {
             <button className="btn btn-ghost btn-sm" onClick={promptAddEvent}>＋新建赛事</button>
             <button
               className="btn btn-blue btn-sm"
-              disabled={!eventId}
-              title="确定本赛事的参赛战队（新队加入/老队退出在此调整），然后逐队登记名单"
+              disabled={!eventId || !eventReady}
+              title={eventReady ? '确定本赛事的参赛战队（新队加入/老队退出在此调整），然后逐队登记名单' : '本赛事数据加载中/加载失败，稍候或重试'}
               onClick={() => setTeamSetup(true)}
             >
               参赛战队
@@ -85,6 +115,12 @@ export default function RosterPage() {
         )}
       </div>
       {error && <div className="error-banner">{error}</div>}
+      {eventLoadErr && eventId && (
+        <div className="error-banner">
+          {eventLoadErr}：
+          <button className="btn btn-ghost btn-sm" style={{ marginLeft: 10 }} onClick={() => fetchEventData(eventId)}>重试</button>
+        </div>
+      )}
 
       {meta && (!meta.events.length
         ? <div className="panel empty-hint">还没有赛事。点上方「＋新建赛事」创建一个（如 2026KPL夏季赛），然后点「参赛战队」确定参赛队伍，再逐队登记名单。</div>
@@ -103,7 +139,7 @@ export default function RosterPage() {
           eventId={Number(eventId)}
           initialTeamIds={eventTeamIds || meta.teams.map((t) => t.id)}
           onClose={() => setTeamSetup(false)}
-          onSaved={(ids) => { setTeamSetup(false); setEventTeamIds(ids.length ? ids : null); }}
+          onSaved={(ids) => { setTeamSetup(false); setEventTeamIds(ids.length ? ids : null); reload(); }}
         />
       )}
 
@@ -148,7 +184,12 @@ export default function RosterPage() {
                       ) : <span className="dim">—</span>}
                     </td>
                     <td className="op-cell">
-                      <button className="btn btn-ghost btn-sm" onClick={() => setEditing({ teamId: t.id, roster: rosterByTeam.get(t.id) })}>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        disabled={!eventReady}
+                        title={eventReady ? undefined : '本赛事名单数据加载中/失败，稍候或重试'}
+                        onClick={() => setEditing({ teamId: t.id, roster: rosterByTeam.get(t.id) })}
+                      >
                         {r ? '编辑' : '登记'}
                       </button>
                     </td>
@@ -214,7 +255,9 @@ function ParticipatingTeamsDialog({ meta, eventId, initialTeamIds, onClose, onSa
     if (!selected.size) return setErr('至少选择 1 支参赛战队');
     setSaving(true); setErr('');
     try {
-      const ids = teams.filter((t) => selected.has(t.id)).map((t) => t.id);
+      // 直接用选中集合：不经本地 teams 过滤——重开弹窗时 initialTeamIds 可能含本地列表缺
+      // 失的战队（如弹窗内新建后父页未刷新），过滤会把它从参赛名单中静默剔除
+      const ids = [...selected];
       await api.saveEventTeams(eventId, ids);
       onSaved(ids);
     } catch (e) { setErr(e.message); } finally { setSaving(false); }

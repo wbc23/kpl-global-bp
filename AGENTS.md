@@ -1,6 +1,6 @@
 # KPL BP 数据平台 — 交接文档
 
-项目在 `D:\AI\BP_GLM5.3`（React18+Vite5 前端 / Express+node:sqlite 后端，**需 Node ≥ 22.5**）。用户日常双击根目录 `启动.bat` 访问 http://localhost:9100 ；重启电脑后双击 `启动全部环境.bat`（生产 9100 + 测试 9101 一起起，两窗口独立关闭互不影响）。
+项目在 `D:\AI\BP_GLM5.3`（React18+Vite5 前端 / Express+node:sqlite 后端）。**Node 版本要求：22.x ≥ 22.16，或 ≥ 23.8**（`copy:test` 依赖的 `backup()` 在线备份 22.16/23.8 起提供，23.0–23.7 缺该 API 不受支持；本机为 v26）。用户日常双击根目录 `启动.bat` 访问 http://localhost:9100 ；重启电脑后双击 `启动全部环境.bat`（生产 9100 + 测试 9101 一起起，两窗口独立关闭互不影响）。
 
 - **历史沿革/决策考据**：见 CHANGELOG.md（按日期，只记录变更过程）
 - **数据/服务现状**（战队数、已录场次、9100/9101 是否在跑）：跑 `npm run status`，不要在文档里维护快照
@@ -17,8 +17,8 @@
 - 项目已开源：https://github.com/wbc23/kpl-global-bp （公开仓库，gh CLI + 设备码登录 wbc23 账号推送）。**生产库 data/kpl.db 随仓库公开**（2026-10-12 用户决定公开比赛数据：clone 即得全部对局、随推送自动更新）；data/ 其余内容（backups/、kpl-test.db*、SQLite 临时文件）、构建产物 dist*、node_modules、.zcode 不入库（.gitignore），*.bat 经 .gitattributes 锁 CRLF。**提交 kpl.db 前确认 data/ 下无 kpl.db-journal/-wal 临时文件**（有 = 服务正在写，稍后再提交）。日常改动仍以测试环境验收 → 用户确认 → 同步生产为准；**推送到 GitHub 不在例行流程内**，用户提出时再 commit+push。gh 在 `/c/Program Files/GitHub CLI/gh.exe`
 
 - `npm run dev` = 数据服务(9100) + Vite(5173)；`npm run build` 后 `npm start` 单进程直出 dist
-- **改前端必须 `npm run build`**（服务托管 dist 产物）；改 server/ 需重启服务
-- 端口固定 9100/9101：本机 5173/5174 被 Hyper-V 保留段拦截（EACCES）
+- **前端改动流程：`npm run build:test` → 9101 验收 → 用户确认 → `npm run build` 生产**（服务托管 dist 产物，生产构建是最后一步）；改 server/ 需重启对应服务
+- 端口固定 9100/9101；本机 5173/5174 曾被 Hyper-V 保留段拦截（EACCES）——这是历史环境记录，再遇拦截时改 vite.config.js 的 server.port 即可，不要把测试端口复用给 Vite
 - **测试环境**：9101 / `data/kpl-test.db` / dist-test，与生产完全隔离，页面红「测试环境」徽标。`npm run build:test` + `npm run start:test`（`--reset` 清空测试库）或 `启动测试环境.bat`；server 支持 PORT/DB_PATH/DIST_DIR 环境变量，快照按库名前缀隔离（kpl-test-*）。**工作流：改动 → build:test → 9101 验证 → 用户确认 → 同步生产（前端 `npm run build`；改 server 需重启生产服务）**
 - 生产→测试数据复制：`npm run copy:test`（sqlite 在线备份；需先关测试服务，生产可运行中）
 - 数据库 `data/kpl.db`；服务启动自动快照到 `data/backups/`（保留 14 份）
@@ -35,10 +35,10 @@
 
 **BP 引擎**（src/bp/，模拟器与录入共用）：rules.js 的 STANDARD_FLOW 定义 5Ban5Pick 顺序（首轮 Ban 蓝红各 2、二轮 Ban 红先手各 3）；validate.js 是唯一校验入口；store.js 模拟器状态机；录入状态机 src/record/recording.js（蓝红逐局轮换、视角映射 toViewState、草稿 localStorage 多槽位自动保存/续录）；src/record/checks.js 为纯函数整体校验（见下）。**录入赛制支持 BO1/3/5/7**（winsNeeded 通用公式：BO1 一胜收官；server 枚举与录入表单同步放行；**模拟器仍 BO3/5/7**）。
 
-- **全局 BP 锁定 = 整队口径**：该方任一选手用过的英雄，本方后续常规局任何选手都不可再选；对手不受影响（sideLocks/usedHeroesBySide 按蓝红视角、名字无关，兼容逐局换人）。BP 面板「已用英雄」按位置分组展示且**含被换下的选手**（usedHeroGroups：按选手名聚合、换下选手（player=-1）按出场次数最多的位置归组、组内当前选手在前；perspectiveGames 的 pick 带 slot=该局原位置与 name），同位置多人时组内紧凑+左侧虚线；锁定校验仍用 usedHeroesByPlayer（只按当前阵容下标，-1 跳过），两条链路勿混用
+- **全局 BP 锁定 = 整队口径**：该方任一选手用过的英雄，本方后续常规局任何选手都不可再选；对手不受影响（兼容逐局换人）。锁定相关三条链路各司其职勿混用：①**ACT 主校验**用 usedHeroesBySide → sideLocks（整队英雄集合，按蓝红视角、名字无关）；②**交换/换人预检**用 usedHeroesByPlayer（按当前阵容下标聚合，player=-1 的换下选手跳过；用于 SWAP_PLAYERS/SET_GAME_ROSTER/rosterLockConflicts）；③**面板展示**用 usedHeroGroups（按选手名聚合、含被换下的选手：换下选手按出场次数最多的位置归组、组内当前选手在前，perspectiveGames 的 pick 带 slot=该局原位置与 name；同位置多人时组内紧凑+左侧虚线）
 - **巅峰对决 = 仅 BO7 第 7 局自动盲选**（无手动开关）：解除锁定、蓝红各 1 交替选人、双方可同英雄、不遮对方阵容；DeciderBanner 鎏金氛围（.decider-* 样式）
 - 空禁记 `hero: null`（validate/分析/回放均兼容）；BP 提示条"x方x楼 选择/禁用英雄"，Ban 手无楼层
-- **补录保存 = 尾部追加**：继续录入会话建立时记录 `meta.baseGames`（当时库内局数），保存只传新录的局 + `fromGameNo`，服务端（PUT /api/series/:id/games）只替换该局号之后的对局——期间经回放修正的旧局不被草稿旧副本覆盖；库内局数与基准不符 → 409 冲突提示。不带 fromGameNo = 整体替换（旧客户端兼容）
+- **补录保存 = 尾部追加**：继续录入会话建立时记录 `meta.baseGames`（当时库内局数），保存只传新录的局 + `fromGameNo`，服务端（PUT /api/series/:id/games）只替换该局号之后的对局——期间经回放修正的旧局不被草稿旧副本覆盖；库内局数与基准不符 → 409 冲突提示。不带 fromGameNo = 整体替换（旧客户端兼容）。**已知限制（B02，用户决定暂缓）**：冲突检查只比局数——旧局英雄/阵容/胜者变化而局数不变时不触发冲突，服务端也不做整队锁定等业务校验；不要把"旧局不被覆盖"理解为"追加后整场已重新校验"，如需改变以用户新指示为准
 - **编辑 BP 保存 = 全系列赛重放校验**（src/record/checks.js）：`editSaveConflicts` 把被编辑局放整场系列赛（含本局之后的局）语境下用 validateAct 逐步重放，锁定冲突/流程非法/重复英雄拦截；**锁定语境只计常规局——盲选局的 pick 不产生锁定**（否则编辑打满 BO7 的前几局会被盲选复用的招牌英雄误拦）；`SET_BLUE` 换向前 `blueFlipConflicts` 按新蓝红映射重校验整队锁定（reducer 兜底拒绝 + 页面 alert 列冲突英雄）。checks.js 不依赖 heroes.json，node 可直接导入做回归测试
 - 逐局换人：games.roster1/2 存本局阵容，**null = 与系列赛阵容一致**（写入与全部读取统一：回放换人条/回放展示/分析 flattenGames/锁定换算 perspectiveGames 一律回退系列赛阵容，不得回退"上一局"或"当前局"，见 checks.js 的 effRoster）；换人走 SET_GAME_ROSTER（与锁定冲突则拒绝）；补录/连续录入的下一局默认沿用**末局实际阵容**（与 FINISH_GAME 的换人延续一致）
 - 已录数据修正入口：回放「编辑BP」（单局，PUT /api/games/:id/draft，可带改判）、「改判」、列表「继续录入」（该系列已有草稿则恢复草稿）、done 阶段 UNDO_LAST_GAME 退回重标胜者
@@ -49,12 +49,12 @@
 - **当前赛事**：= 最近有系列赛录入的赛事（按系列赛日期，同日取后录入的；全部无录入时取最新创建），由 /api/meta 的 currentEventId 返回。各页默认以它为准：录入列表的赛事筛选（可选全部，选项带场次计数）、新建录入表单默认赛事（优先于上次偏好）、大名单页默认赛事、分析页打开时的默认筛选（用户手选后不再干预）
 - **录入前置条件**：新建录入表单要求本赛事**全部参赛战队（未设置时=全部战队）都登记了大名单**才可开始录入（RecordForm 实时校验，缺登时禁用按钮+横幅列缺登战队；继续录入/已录系列赛不受影响）
 - 战队/赛事删除受引用约束：有关联系列赛 → 409；尚有赛程（schedule）或大名单（team_rosters）引用也 → 409 提示先清理（两表对 teams/events 有外键无 ON DELETE，不预检会裸 500）
-- 英雄数据 src/data/heroes.json（133 名，官方 API 生成，**勿手改**，会被 refresh 覆盖）：`curl herolist.json -o scripts/herolist.raw.json && npm run refresh-heroes && npm run build`。头像 gtimg CDN 失败回退职业色块；主分路人工修正表在 scripts/refresh-heroes.mjs 的 **LANE_PRIMARY**（当前：哪吒/夏侯惇/杨戬/元流之子·坦克/梦奇/猪八戒→打野，蚩奼/卢雅那→发育路，张良/赵怀真/墨子→游走，王维→中路），排到 lanes 最前作选人默认推荐位
+- 英雄数据 src/data/heroes.json（133 名，官方 API 生成，**勿手改**，会被 refresh 覆盖）：更新步骤（curl 下载 herolist.raw.json → npm run refresh-heroes → **先 build:test 验收**，生产 build 待用户确认后单独执行）以 README「英雄数据」节为准。头像 gtimg CDN 失败回退职业色块；主分路人工修正表在 scripts/refresh-heroes.mjs 的 **LANE_PRIMARY**（当前：哪吒/夏侯惇/杨戬/元流之子·坦克/梦奇/猪八戒→打野，蚩奼/卢雅那→发育路，张良/赵怀真/墨子→游走，王维→中路），排到 lanes 最前作选人默认推荐位
 - **英雄搜索 heroMatch**（src/data/heroSearch.js，英雄池与分析页共用）：**只按英雄名**（称号不参与，py 仅名称拼音），子串匹配英雄名与 py 各词（全拼+首字母+别名，如 guanyu/gy/lvbu/lubu）；曾评估"≥3 字符子序列匹配"方案，用户决定**不做**——勿自行加回
 - 选人交互：点英雄按分路自动预填同位置选手（无可用推荐才弹手动窗）；点已选英雄 SWAP_PLAYERS 互换/移动；英雄池对系列赛已用英雄**仅在轮到用过的一方选择时**灰显+禁选（tooltip 标使用者与局数；对手回合不灰显）
 - 「快速完成本局」QUICK_COMPLETE：随机补全剩余 Ban/Pick，校验与 ACT 完全一致（流程/本局唯一/整队锁定/选手位不重复；测试辅助，胜者仍手动标记）
 - 录入表单记忆上次配置（localStorage `kpl-bp-record-prefs`：赛事/赛段/日期/赛制）；「上一场首发」取该队最近一场已录系列的末局阵容；录入可直接填备注（meta.note，编辑弹窗可改、续录不改）；PoolPanel 搜索方向键首尾环绕；HistoryPanel 按当局真实蓝红方展示（红方 row-reverse）
-- 录入草稿多槽位（localStorage `kpl-bp-record-drafts`，key=meta.sessionId，旧单键自动迁移）：支持同时进行多场录入；「暂存并返回」留草稿退出；「保存已录 X 局」部分保存（仅已完成局入库，SAVED 结束会话，列表「继续录入」补录）；gamesPayload/saveSeriesToDb 是模块级函数（勿移回组件内）
+- 录入草稿多槽位（localStorage `kpl-bp-record-drafts`，key=meta.sessionId，旧单键自动迁移）：支持同时进行多场录入；「暂存并返回」留草稿退出；「保存已录 X 局」部分保存（仅已完成局入库，SAVED 结束会话，列表「继续录入」补录）；gamesPayload/saveSeriesToDb 是模块级函数（勿移回组件内）。**保存会话保护**：①SAVED 携带发起保存的 sessionId（reducer 忽略空状态与错配会话的迟到 SAVED）；②保存成功即直接清该会话草稿（不依赖页面挂载）；③保存期间内容区启用 **inert**（键盘/指针全阻断，effect 带清理防阶段切换复用节点残留）+ 遮罩（.save-mask，仅视觉）；④模块级 savingSessions 锁：保存在途禁止恢复同一草稿（旧请求成功 clearDraft 会清掉恢复后新录的进度），草稿横幅/列表「继续录入」随之禁用，完成经 kpl-drafts-changed 事件通知列表刷新——重构保存流程时勿撤回这些防护
 
 **分析口径**（聚合全在 src/analysis/compute.js，页面 AnalysisPage.jsx，细节以代码注释为准）：
 
@@ -64,7 +64,7 @@
 - 轮次为**区间语义**（ROUND_DEFS/seriesRoundKeys/groupByRound）：从备注「第x轮」的首场系列赛起、到下一轮标记场之前的全部归该轮（**中文数字与阿拉伯数字均可**：第一轮/第1轮）；只需给每轮首场标注备注；季后赛边界=首场季后赛系列赛；首边界之前归"未标注"不计入常规赛合计（regular=r1+r2+r3）。**归属在完整未筛选数据上计算（seriesRoundKeys(allGames)，页面筛选掉标记场不影响归属），且按赛事隔离找边界，不跨赛事继承**。**特殊赛制赛事（年度总决赛）不走备注轮次：非默认赛段按赛段值直接分组**（customStageDefs 从全量 allGames 发现、排序先按 CUSTOM_STAGE_ORDER 固有赛制顺序再按首场日期——同日多场只认赛制顺序；roundDefs 动态并入选项，轮次对比区块自动加相邻赛段预设按钮），服务器对 stage 无枚举校验、新赛段值无需后端改动；轮次/赛段对比含三张变化表（英雄 BP率 / 组合出现率 / 英雄平均楼层——floorShiftRows：两组各 Pick≥2 次、平均楼层差排序，▼=更早被选向1楼）；轮次/赛段对比的预设按钮（静态轮次对+相邻赛段对）**只在两端分组都有数据时显示、全空整行隐藏**（年度总决赛范围不会出现"第一轮↔第二轮"等无关预设——用户明确要求，勿回退成静态全显；区块赛事范围只由页面顶部赛事筛选控制，勿再加区块级选择器，用户已回退过一次）
 - 大场胜负 = **任一方小局先胜 (BO+1)/2 局才计胜负**，未达门槛的未录完系列赛记"未分"（只入胜率分母；allTeamStats 的 seriesMap 带 bo）
 - 英雄页为二级页签：「数据总览」（主分路筛选口径 lanes[0]、英雄表/组合榜默认 20 行增量展开+搜索；**英雄热度趋势**区块——heroTrendRows 按自然月分组、分母=该月 2×局数、零出场月份保留 0 点、手绘 SVG 三线图 Pick 蓝/Ban 红/BP 金、悬停看当月明细）与「对位克制」（顶部一个共用「选择英雄」下拉，下方两区块联动同一英雄——①对位胜负：heroRivalStats 看最常输给/最常赢的对方英雄与两英雄组合，按负场/胜场排序、对战场次 ≥3（RIVAL_MIN）入榜、输给榜只列真输过赢榜只列真赢过、盲选局不计；②Counter 关系：BP 手序应对时机（"对方已亮才选"），有"它 counter 谁/谁 counter 它"两视角，组合模式用自带组合下拉）。两区块语义不同（战绩 vs 时机）**勿合并成一张表**，只共用选择器
-- 赛事分析页=轮次对比+不同赛事对比两区块；**不同赛事对比基于全量 allGames，不受上方筛选影响，一次对比两个范围（side）**（选择器为 赛事+赛段 两级 × A/B：默认最近两个赛事的"全部赛段"，可细分到具体赛段如 夏季赛·季后赛 vs 年度总决赛·擂台赛，同赛事不同赛段也可互比；切赛事时该侧赛段重置，两侧完全相同（key=eventId:stage）时去重单侧展示；赛段选项来自 stageGroupsByEvent，默认赛段在前、特殊赛段按 CUSTOM_STAGE_ORDER），T0候选/非Ban必选/热门组合与跨赛事表同源；跨赛事表行为**两侧各出场（Pick+Ban）≥3 次的英雄、按 BP率 变化幅度排序（≤15，用户要求——不再按各侧 TOP10 并集，稳定但无变化的英雄不再霸榜）**；单侧展示时按 BP率 TOP10，**单元格显示该赛事真实 BP率/胜率**（行内存数值、渲染时格式化；B 赛事列附与 A 的差值箭头 delta-up/down，▲升▼降），下方另有 英雄平均楼层变化表（floorShiftRows，两侧各 Pick≥2）与 两/三英雄组合出现率变化表（comboShiftRows/trioShiftRows，两侧各出现 ≥2、出现率分母=该侧局数，ComboChangeTable 组件 pair/trio 共用）（—=未出场，勿改回"不在TOP10显示—"——会把夏洛特这类高频英雄误显为未使用）；**T0 候选阈值 = BP率≥40% 且 ≥5 次**（原 70% 数学上不可达：BP率上限 50%，每局每英雄最多出场 1 次、分母 2×局数；2026-10-03 由 70% 下调），非Ban必选 = ban率≥40% 且 ≥3 次；小样本赛事不加"样本小"标注（用户明确不要）
+- 赛事分析页=轮次对比+不同赛事对比两区块；**不同赛事对比基于全量 allGames，不受上方筛选影响，一次对比两个范围（side）**（选择器为 赛事+赛段 两级 × A/B：默认最近两个赛事的"全部赛段"，可细分到具体赛段如 夏季赛·季后赛 vs 年度总决赛·擂台赛，同赛事不同赛段也可互比；切赛事时该侧赛段重置，两侧完全相同（key=eventId:stage）时去重单侧展示；赛段选项来自 stageGroupsByEvent，默认赛段在前、特殊赛段按 CUSTOM_STAGE_ORDER），T0候选/非Ban必选/热门组合与跨赛事表同源；跨赛事表行为**两侧各出场（Pick+Ban）≥3 次的英雄、按 BP率 变化幅度排序（≤15，用户要求——不再按各侧 TOP10 并集，稳定但无变化的英雄不再霸榜）**；单侧展示时按 BP率 TOP10，**单元格显示该赛事真实 BP率/胜率**（行内存数值、渲染时格式化；B 赛事列附与 A 的差值箭头 delta-up/down，▲升▼降），下方另有 英雄平均楼层变化表（floorShiftRows，两侧各 Pick≥2）与 两/三英雄组合出现率变化表（comboShiftRows/trioShiftRows，两侧各出现 ≥2、出现率分母=该侧局数，ComboChangeTable 组件 pair/trio 共用）（—=未出场，勿改回"不在TOP10显示—"——会把夏洛特这类高频英雄误显为未使用）；**T0 候选阈值 = BP率≥40% 且 ≥5 次**（原 70% 数学上不可达——常规局 BP率上限 50%：每局每英雄最多被 Ban/Pick 一次、分母 2×局数；**盲选局例外**：双方可同选该英雄，单局最高 100%；2026-10-03 由 70% 下调），非Ban必选 = ban率≥40% 且 ≥3 次；小样本赛事不加"样本小"标注（用户明确不要）
 
 ## 历史教训（红线）
 
