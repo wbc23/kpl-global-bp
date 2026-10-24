@@ -54,7 +54,7 @@
 - 选人交互：点英雄按分路自动预填同位置选手（无可用推荐才弹手动窗）；点已选英雄 SWAP_PLAYERS 互换/移动；英雄池对系列赛已用英雄**仅在轮到用过的一方选择时**灰显+禁选（tooltip 标使用者与局数；对手回合不灰显）
 - 「快速完成本局」QUICK_COMPLETE：随机补全剩余 Ban/Pick，校验与 ACT 完全一致（流程/本局唯一/整队锁定/选手位不重复；测试辅助，胜者仍手动标记）
 - 录入表单记忆上次配置（localStorage `kpl-bp-record-prefs`：赛事/赛段/日期/赛制）；「上一场首发」取该队最近一场已录系列的末局阵容；录入可直接填备注（meta.note，编辑弹窗可改、续录不改）；PoolPanel 搜索方向键首尾环绕；HistoryPanel 按当局真实蓝红方展示（红方 row-reverse）
-- 录入草稿多槽位（localStorage `kpl-bp-record-drafts`，key=meta.sessionId，旧单键自动迁移）：支持同时进行多场录入；「暂存并返回」留草稿退出；「保存已录 X 局」部分保存（仅已完成局入库，SAVED 结束会话，列表「继续录入」补录）；gamesPayload/saveSeriesToDb 是模块级函数（勿移回组件内）。**保存会话保护**：①SAVED 携带发起保存的 sessionId（reducer 忽略空状态与错配会话的迟到 SAVED）；②保存成功即直接清该会话草稿（不依赖页面挂载）；③保存期间内容区启用 **inert**（键盘/指针全阻断，effect 带清理防阶段切换复用节点残留）+ 遮罩（.save-mask，仅视觉）；④模块级 savingSessions 锁：保存在途禁止恢复同一草稿（旧请求成功 clearDraft 会清掉恢复后新录的进度），草稿横幅/列表「继续录入」随之禁用，完成经 kpl-drafts-changed 事件通知列表刷新——重构保存流程时勿撤回这些防护
+- 录入草稿多槽位（localStorage `kpl-bp-record-drafts`，key=meta.sessionId，旧单键自动迁移）：支持同时进行多场录入；「暂存并返回」留草稿退出；「保存已录 X 局」部分保存（仅已完成局入库，SAVED 结束会话，列表「继续录入」补录）；gamesPayload/saveSeriesToDb 是模块级函数（勿移回组件内）。**保存会话保护**：①SAVED 携带发起保存的 sessionId（reducer 忽略空状态与错配会话的迟到 SAVED）；②保存成功即直接清该会话草稿（不依赖页面挂载），并派发 kpl-series-saved 通知列表页重拉系列赛；③保存期间内容区（**含换人弹窗，同一 DOM 子树**）启用 **inert**（键盘/指针全阻断，effect 带清理防阶段切换复用节点残留）+ 遮罩（.save-mask，仅视觉）；④模块级 savingSessions 锁：**加/解锁必须走 lockSession/unlockSession**（同时派发 kpl-drafts-changed 让挂载页即时重渲染），两个保存入口开头实时查锁防重入，恢复/放弃入口回调实时查锁（渲染时 disabled 可能滞后）——保存在途禁止恢复同一草稿（旧请求成功 clearDraft 会清掉恢复后新录的进度）；⑤大名单编辑器/参赛队弹窗的完成回调带归属校验（编辑实例引用比对 / eventIdRef + 弹窗实例 token——同赛事关旧开新时旧回调不关新弹窗；弹窗保存在途禁 Esc/关闭/取消），过期回调只走 reload 安全路径。重构保存或名单流程时勿撤回这些防护
 
 **分析口径**（聚合全在 src/analysis/compute.js，页面 AnalysisPage.jsx，细节以代码注释为准）：
 

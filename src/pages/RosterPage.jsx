@@ -11,6 +11,11 @@ export default function RosterPage() {
   const [rosters, setRosters] = useState([]);
   const [eventTeamIds, setEventTeamIds] = useState(null); // 参赛队 id 数组；null=未设置（显示全部战队）
   const [teamSetup, setTeamSetup] = useState(false);
+  // 参赛队弹窗的实例标识：每次打开递增。onSaved 回调捕获打开时的 token，
+  // 与当前 token 比对——同一赛事内"关旧弹窗→开新弹窗"时旧实例的迟到回调不再关掉新弹窗
+  const teamSetupTokenRef = useRef(0);
+  const openTeamSetup = () => { teamSetupTokenRef.current += 1; setTeamSetup(true); };
+  const token = teamSetupTokenRef.current;
   const [editing, setEditing] = useState(null); // {teamId, roster?}
   const [error, setError] = useState('');
   // 当前赛事的实时引用 + 递增请求序号：reload 与 eventId effect 共用，
@@ -64,6 +69,7 @@ export default function RosterPage() {
   useEffect(() => {
     if (!eventId) { setRosters([]); setEventTeamIds(null); setEventReady(false); return; }
     setEditing(null);
+    setTeamSetup(false); // 切赛事关闭仍打开的参赛队弹窗（防旧弹窗残留到新赛事）
     // 切换瞬间先清空并置未就绪：加载窗口/失败时「参赛战队」「登记」按钮禁用——
     // 不把"尚未知晓"当成"未设置参赛队/未登记"开放编辑
     setRosters([]);
@@ -106,7 +112,7 @@ export default function RosterPage() {
               className="btn btn-blue btn-sm"
               disabled={!eventId || !eventReady}
               title={eventReady ? '确定本赛事的参赛战队（新队加入/老队退出在此调整），然后逐队登记名单' : '本赛事数据加载中/加载失败，稍候或重试'}
-              onClick={() => setTeamSetup(true)}
+              onClick={openTeamSetup}
             >
               参赛战队
             </button>
@@ -139,7 +145,16 @@ export default function RosterPage() {
           eventId={Number(eventId)}
           initialTeamIds={eventTeamIds || meta.teams.map((t) => t.id)}
           onClose={() => setTeamSetup(false)}
-          onSaved={(ids) => { setTeamSetup(false); setEventTeamIds(ids.length ? ids : null); reload(); }}
+          onSaved={(ids) => {
+            // 归属校验（M02 + 弹窗实例）：赛事比对挡跨赛事污染；teamSetupToken 挡
+            // 同一赛事内"关旧弹窗→开新弹窗"——旧实例的迟到回调不得关掉新弹窗、
+            // 丢弃其未保存的勾选（两个实例 eventId 相同，仅比赛事不够）
+            if (eventIdRef.current === eventId && teamSetupTokenRef.current === token) {
+              setTeamSetup(false);
+              setEventTeamIds(ids.length ? ids : null);
+            }
+            reload(); // 内部有赛事守卫，过期时只刷新全局 meta，不操作当前弹窗
+          }}
         />
       )}
 
@@ -150,7 +165,12 @@ export default function RosterPage() {
           eventId={Number(eventId)}
           teamId={editing.teamId}
           initial={editing.roster}
-          onDone={() => { setEditing(null); reload(); }}
+          onDone={() => {
+            // 归属校验（M02）：函数式比对当前编辑实例——过期回调（保存期间切走或
+            // 已换编辑对象）不再无条件关掉别人
+            setEditing((cur) => (cur === editing ? null : cur));
+            reload();
+          }}
         />
       )}
 
@@ -206,7 +226,10 @@ export default function RosterPage() {
 
 /* ================= 参赛战队设置（整体替换：新队加入/老队退出都在这里改） ================= */
 function ParticipatingTeamsDialog({ meta, eventId, initialTeamIds, onClose, onSaved }) {
-  useEscape(onClose);
+  const [saving, setSaving] = useState(false);
+  // 保存请求在途时禁止关闭/取消/Esc：请求不会因关闭而取消，关掉再重开会产生
+  // 同赛事双实例（onSaved 已带实例 token 归属校验，此处再禁入口是防御性双层）
+  useEscape(onClose, !saving);
   const ev = meta.events.find((e) => e.id === eventId);
   // 本地战队副本：新建战队后直接 append，无需整页刷新
   const [teams, setTeams] = useState(() => [...meta.teams]);
@@ -216,7 +239,6 @@ function ParticipatingTeamsDialog({ meta, eventId, initialTeamIds, onClose, onSa
   const [newName, setNewName] = useState('');
   const [newShort, setNewShort] = useState('');
   const [err, setErr] = useState('');
-  const [saving, setSaving] = useState(false);
 
   if (!ev) return null;
 
@@ -264,11 +286,11 @@ function ParticipatingTeamsDialog({ meta, eventId, initialTeamIds, onClose, onSa
   };
 
   return (
-    <div className="modal-mask" onClick={onClose}>
+    <div className="modal-mask" onClick={() => { if (!saving) onClose(); }}>
       <div className="modal modal-wide modal-scroll" onClick={(e) => e.stopPropagation()}>
         <div className="replay-head">
           <h3>{ev.name} · 参赛战队</h3>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>关闭</button>
+          <button className="btn btn-ghost btn-sm" disabled={saving} onClick={onClose}>关闭</button>
         </div>
         <div className="roster-edit-hint">
           点卡片选择 / 取消参赛战队，保存后本页列表与录入选队只显示这些战队
@@ -318,7 +340,7 @@ function ParticipatingTeamsDialog({ meta, eventId, initialTeamIds, onClose, onSa
           <button className="btn btn-gold" disabled={saving || !selected.size} onClick={save}>
             {saving ? '保存中…' : `保存参赛战队（${selected.size} 支）`}
           </button>
-          <button className="btn btn-ghost" onClick={onClose}>取消</button>
+          <button className="btn btn-ghost" disabled={saving} onClick={onClose}>取消</button>
         </div>
       </div>
     </div>

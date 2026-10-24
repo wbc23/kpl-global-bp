@@ -36,8 +36,15 @@ function gamesPayload(rec) {
 
 /** 保存中会话锁（模块级：录入页卸载后仍存活）。保存请求在途时禁止恢复同一草稿——
  *  旧请求成功会 clearDraft(sessionId)，若期间恢复同一 sessionId 继续录入并产生新进度，
- *  新进度草稿会被旧请求清掉（跨路由恢复路径，N02） */
+ *  新进度草稿会被旧请求清掉（跨路由恢复路径，N02）。
+ *  加锁/解锁必须经 lockSession/unlockSession：除维护 Set 外还派发事件，让当前挂载的
+ *  列表页立即重渲染（草稿卡按钮随锁禁用/恢复）——直接 add/delete 不会触发渲染（M01） */
 const savingSessions = new Set();
+const notifyDraftsChanged = () => window.dispatchEvent(new Event('kpl-drafts-changed'));
+/** 保存成功通知：列表页据此重拉系列赛列表（新入库场次/新局数立即可见，M03） */
+const notifySeriesSaved = () => window.dispatchEvent(new Event('kpl-series-saved'));
+const lockSession = (sid) => { savingSessions.add(sid); notifyDraftsChanged(); };
+const unlockSession = (sid) => { savingSessions.delete(sid); notifyDraftsChanged(); };
 
 /** 保存系列赛：继续录入的会话走尾部追加（只写会话建立后新录的局，库内旧局保持
  *  服务端版本——期间通过回放做的修正不会被草稿副本覆盖，局数不符时服务端 409），
@@ -75,13 +82,17 @@ export default function RecordPage({ heroesById }) {
   const [recording, recDispatch] = useReducer(recordingReducer, null);
   // 未完成的录入草稿（localStorage 多槽位，可同时进行多场录入）
   const [drafts, setDrafts] = useState(() => loadDrafts());
-  // 保存在途切走再返回的场景：保存完成的闭包（原会话组件已卸载）通过
-  // kpl-drafts-changed 事件通知列表页重读草稿——横幅消失、恢复按钮解锁
+  // 保存在途切走再返回的场景：锁变化/草稿清理经 kpl-drafts-changed 重读草稿（横幅消失、
+  // 恢复按钮解锁）；保存成功经 kpl-series-saved 重拉系列赛列表（新入库场次立即可见，M03）
   useEffect(() => {
     const sync = () => setDrafts(loadDrafts());
     window.addEventListener('kpl-drafts-changed', sync);
     return () => window.removeEventListener('kpl-drafts-changed', sync);
   }, []);
+  useEffect(() => {
+    window.addEventListener('kpl-series-saved', reload);
+    return () => window.removeEventListener('kpl-series-saved', reload);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // 单局 BP 编辑会话（独立 reducer，不与录入草稿互相覆盖）
   const [editGame, setEditGame] = useState(null); // { series, game }
   const [editRec, editDispatch] = useReducer(recordingReducer, null);
@@ -143,16 +154,18 @@ export default function RecordPage({ heroesById }) {
 
   // 录入会话/草稿 → 服务端 games 载荷见模块级 gamesPayload；保存见 saveSeriesToDb
   const saveDraftToDb = async (d) => {
-    if (!window.confirm(`将草稿中已录的 ${d.games.length} 局保存到数据库？\n未完成的本局不会保存，之后可在列表用「继续录入」补录。`)) return;
     const sid = d.meta.sessionId;
-    savingSessions.add(sid);
+    if (savingSessions.has(sid)) return; // 双击/另一入口已在保存（Set 非计数锁，重入会提前解锁）
+    if (!window.confirm(`将草稿中已录的 ${d.games.length} 局保存到数据库？\n未完成的本局不会保存，之后可在列表用「继续录入」补录。`)) return;
+    lockSession(sid);
     try {
       await saveSeriesToDb(d.meta, gamesPayload(d));
       clearDraft(sid);
-      setDrafts(loadDrafts());
-      reload();
+      notifySeriesSaved();
+      await reload();
     } catch (e) { alert(`保存失败：${e.message}`); } finally {
-      savingSessions.delete(sid);
+      unlockSession(sid);
+      setDrafts(loadDrafts());
     }
   };
 
@@ -219,9 +232,12 @@ export default function RecordPage({ heroesById }) {
           key={d.meta.sessionId}
           draft={d}
           saveLocked={savingSessions.has(d.meta.sessionId)}
-          onResume={() => { recDispatch({ type: '@@RESET', recording: d }); setView('recording'); }}
+          onResume={() => {
+            if (savingSessions.has(d.meta.sessionId)) return; // 实时查锁：渲染时的 disabled 可能滞后（M01）
+            recDispatch({ type: '@@RESET', recording: d }); setView('recording');
+          }}
           onSave={() => saveDraftToDb(d)}
-          onDiscard={() => discardDraft(d)}
+          onDiscard={() => { if (savingSessions.has(d.meta.sessionId)) return; discardDraft(d); }}
         />
       ))}
 
@@ -296,6 +312,7 @@ export default function RecordPage({ heroesById }) {
                                   ? '该系列赛有未完成的录入草稿，将从中断处继续（含未录完的局）'
                                   : '在该系列赛上补录后续小局'}
                               onClick={() => {
+                                if (parked && savingSessions.has(parked.meta.sessionId)) return; // 实时查锁（M01）
                                 recDispatch({ type: '@@RESET', recording: parked || createContinueRecording(s) });
                                 setView('recording');
                               }}
@@ -367,6 +384,7 @@ function SeriesEditModal({ meta, series, onDone }) {
 
   if (!meta) return null;
   const save = async () => {
+    if (!date) return setErr('请填写比赛日期');
     try {
       await api.updateSeries(series.id, { eventId: Number(eventId), stage: effStage, date, note });
       onDone();
@@ -609,6 +627,7 @@ function RecordForm({ meta, prefill, seriesList, onCancel, onStart, onMetaChange
     const t2 = meta.teams.find((t) => t.id === Number(team2Id));
     const ev = meta.events.find((e) => e.id === Number(eventId));
     if (!ev) return setErr('请选择或创建赛事');
+    if (!date) return setErr('请填写比赛日期');
     if (rosterMissing.length > 0) return setErr(`本赛事还有 ${rosterMissing.length} 支战队未登记大名单（${missingNames}），请先在「大名单」页完成登记后再录入`);
     if (!t1 || !t2) return setErr('请选择两支战队');
     if (t1.id === t2.id) return setErr('两队不能相同');
@@ -839,7 +858,12 @@ function DraftBanner({ draft: d, onResume, onSave, onDiscard, saveLocked }) {
             保存 {d.games.length} 局入库
           </button>
         )}
-        <button className="btn btn-ghost danger" onClick={onDiscard}>放弃草稿</button>
+        <button
+          className="btn btn-ghost danger"
+          disabled={saveLocked}
+          title={saveLocked ? '保存请求在途，完成后可放弃剩余草稿' : undefined}
+          onClick={onDiscard}
+        >放弃草稿</button>
       </div>
     </div>
   );
@@ -869,11 +893,10 @@ function RecordSession({ rec, dispatch, heroesById, onExit, onPark }) {
   const w2 = teamWins(rec.games, 2);
 
   const doSave = async () => {
-    setSaving(true); setSaveErr('');
-    // 绑定发起保存的会话：请求在途期间用户可能暂存退出或切到另一场录入，
-    // 迟到的 SAVED 只允许落在原会话上（reducer 按 sessionId 忽略错配）
     const sid = meta.sessionId;
-    savingSessions.add(sid);
+    if (savingSessions.has(sid)) return; // 防重复提交（双击/草稿卡入口并行）
+    setSaving(true); setSaveErr('');
+    lockSession(sid);
     try {
       await saveSeriesToDb(meta, gamesPayload(rec));
       // 成功即直接清本会话草稿：不依赖当前页面是否仍挂载（保存期间切走时
@@ -881,14 +904,12 @@ function RecordSession({ rec, dispatch, heroesById, onExit, onPark }) {
       // savingSessions 锁保证此刻不会有人恢复同一草稿产生更新内容（N02）
       clearDraft(sid);
       dispatch({ type: 'SAVED', sessionId: sid });
-      // 保存在途切走再返回时，列表页的草稿横幅可能还挂着"正在保存"——
-      // 通知本页监听器立即重读草稿（横幅消失/按钮解锁）
-      window.dispatchEvent(new Event('kpl-drafts-changed'));
+      // 保存在途切走再返回时，列表页据此重拉系列赛（新入库场次立即可见，M03）
+      notifySeriesSaved();
     } catch (e) {
       setSaveErr(`保存失败：${e.message}`);
     } finally {
-      savingSessions.delete(sid);
-      window.dispatchEvent(new Event('kpl-drafts-changed'));
+      unlockSession(sid);
       setSaving(false);
     }
   };
@@ -1039,22 +1060,23 @@ function RecordSession({ rec, dispatch, heroesById, onExit, onPark }) {
   return (
     <>
       {saving && <div className="save-mask"><span>正在保存，请稍候…</span></div>}
-      {rosterEdit && (
-        <GameRosterModal
-          rec={rec}
-          heroesById={heroesById}
-          onClose={() => setRosterEdit(false)}
-          onSave={({ roster1, roster2, changed }) => {
-            if (changed.includes(1)) dispatch({ type: 'SET_GAME_ROSTER', team: 1, roster: roster1 });
-            if (changed.includes(2)) dispatch({ type: 'SET_GAME_ROSTER', team: 2, roster: roster2 });
-            setRosterEdit(false);
-          }}
-        />
-      )}
       {saveErr && <div className="error-banner">{saveErr}</div>}
-      {/* saving 时对内容区启用 inert：同时阻断键盘（Tab/Enter/Esc 到达控件）与指针，
-          遮罩只挡鼠标不够；display:contents 不影响布局 */}
+      {/* saving 时对内容区（含换人弹窗——弹窗是同一 DOM 子树，inert 一并冻结，外B1）
+          启用 inert：同时阻断键盘（Tab/Enter/Esc 到达控件）与指针，
+          遮罩只挡鼠标不够；display:contents 不影响布局、fixed 定位弹窗不受影响 */}
       <div style={{ display: 'contents' }} ref={contentRef}>
+        {rosterEdit && (
+          <GameRosterModal
+            rec={rec}
+            heroesById={heroesById}
+            onClose={() => setRosterEdit(false)}
+            onSave={({ roster1, roster2, changed }) => {
+              if (changed.includes(1)) dispatch({ type: 'SET_GAME_ROSTER', team: 1, roster: roster1 });
+              if (changed.includes(2)) dispatch({ type: 'SET_GAME_ROSTER', team: 2, roster: roster2 });
+              setRosterEdit(false);
+            }}
+          />
+        )}
         <DraftCenter state={viewState} dispatch={dispatch} heroesById={heroesById} toolbar={toolbar} />
       </div>
     </>
@@ -1317,21 +1339,21 @@ function RecordEditSession({ rec, dispatch, heroesById, series, game, onExit }) 
   return (
     <>
       {saving && <div className="save-mask"><span>正在保存，请稍候…</span></div>}
-      {rosterEdit && (
-        <GameRosterModal
-          rec={rec}
-          heroesById={heroesById}
-          onClose={() => setRosterEdit(false)}
-          onSave={({ roster1, roster2, changed }) => {
-            if (changed.includes(1)) dispatch({ type: 'SET_GAME_ROSTER', team: 1, roster: roster1 });
-            if (changed.includes(2)) dispatch({ type: 'SET_GAME_ROSTER', team: 2, roster: roster2 });
-            setRosterEdit(false);
-          }}
-        />
-      )}
       {saveErr && <div className="error-banner">{saveErr}</div>}
-      {/* saving 时对内容区启用 inert：同时阻断键盘（Tab/Enter 到达控件）与指针 */}
+      {/* saving 时对内容区（含换人弹窗，外B1）启用 inert：同时阻断键盘与指针 */}
       <div style={{ display: 'contents' }} ref={contentRef}>
+        {rosterEdit && (
+          <GameRosterModal
+            rec={rec}
+            heroesById={heroesById}
+            onClose={() => setRosterEdit(false)}
+            onSave={({ roster1, roster2, changed }) => {
+              if (changed.includes(1)) dispatch({ type: 'SET_GAME_ROSTER', team: 1, roster: roster1 });
+              if (changed.includes(2)) dispatch({ type: 'SET_GAME_ROSTER', team: 2, roster: roster2 });
+              setRosterEdit(false);
+            }}
+          />
+        )}
         <DraftCenter
           state={viewState}
           dispatch={dispatch}

@@ -25,8 +25,8 @@ if (!fs.existsSync(PROD)) {
   process.exit(1);
 }
 
-// 清理旧测试库及残留的 journal 文件，再写入全新副本
-for (const suffix of ['', '-wal', '-shm']) {
+// 清理旧测试库及残留的 journal 文件（含 -journal 回滚日志，外B8），再写入全新副本
+for (const suffix of ['', '-wal', '-shm', '-journal']) {
   const f = TEST + suffix;
   if (fs.existsSync(f)) fs.unlinkSync(f);
 }

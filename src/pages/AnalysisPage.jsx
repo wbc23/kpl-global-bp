@@ -10,7 +10,7 @@ import {
   TRIO_DEFS, trioComboStats,
   globalComboStats, globalTrioStats, globalFiveStats,
   heroShiftRows, comboShiftRows, trioShiftRows, floorShiftRows,
-  groupByRound, ROUND_DEFS, roundDefs,
+  groupByRound, roundDefs,
   allPlayerStats, allTeamStats, afterLossSideStats,
 } from '../analysis/compute.js';
 
@@ -1282,7 +1282,7 @@ function TeamTab({ games, teams, heroesById }) {
             </>
           }
         >
-          {comboRows.length === 0 ? <div className="empty-hint">暂无组合数据（至少 2 次）</div> : (
+          {comboRows.length === 0 ? <div className="empty-hint">当前筛选下暂无组合数据</div> : (
             <>
               <div className="table-wrap">
                 <table className="data-table">

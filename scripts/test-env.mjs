@@ -11,7 +11,8 @@ const { fileURLToPath } = await import('node:url');
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 if (process.argv.includes('--reset')) {
-  for (const suffix of ['', '-wal', '-shm']) {
+  // -journal 也一并清理：目标库已明确要重建，附属回滚日志不应残留（防御性，外B8）
+  for (const suffix of ['', '-wal', '-shm', '-journal']) {
     const f = path.join(ROOT, 'data', `kpl-test.db${suffix}`);
     if (fs.existsSync(f)) fs.unlinkSync(f);
   }

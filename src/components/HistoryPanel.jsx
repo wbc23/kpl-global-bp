@@ -43,11 +43,16 @@ export default function HistoryPanel({ state, heroesById }) {
                       {g[`${side}Bans`].length > 0 && (
                         <div className="history-bans">
                           <span className="hb-label">Ban</span>
-                          {g[`${side}Bans`].map((id) => (
-                            <span className="history-hero-chip ban" key={id} title={heroesById[id]?.name}>
-                              <HeroAvatar hero={heroesById[id]} size={24} />
-                              {heroesById[id]?.name ?? id}
-                            </span>
+                          {g[`${side}Bans`].map((id, i) => (
+                            id == null ? (
+                              // 空禁（hero:null）：不渲染问号头像，显示文字徽标；key 用索引稳定化（同局多条空禁不重复）
+                              <span className="history-hero-chip ban" key={`${side}-skip-${i}`} title="空禁（放弃该条 Ban 占位）">空禁</span>
+                            ) : (
+                              <span className="history-hero-chip ban" key={id} title={heroesById[id]?.name}>
+                                <HeroAvatar hero={heroesById[id]} size={24} />
+                                {heroesById[id]?.name ?? id}
+                              </span>
+                            )
                           ))}
                         </div>
                       )}

@@ -61,7 +61,7 @@ npm run start:test -- --reset   # 启动前清空测试数据库（重新预置�
 
 - 数据库：`data/kpl.db`（Node 内置 `node:sqlite`，零原生依赖），可直接复制备份
 - **比赛数据随仓库分发**：clone 后依次 `npm install && npm run build && npm start` 即自带全部已录入的系列赛与 BP 数据（注意 dist 构建产物不入库，**首次运行必须先 build**；测试库 `kpl-test.db` 与 `data/backups/` 快照亦不入库）
-- 首次启动自动预置 18 支 KPL 战队（2026 赛代名单，见 server/db.mjs PRESET_TEAMS，
+- 对应表为空时自动预置 18 支 KPL 战队（2026 赛代名单，见 server/db.mjs PRESET_TEAMS，
   可在「基础数据」页改/删）与 10 个选手昵称作录入提示，不代表任何当前阵容
 - 录入系列赛时，阵容中出现的新选手名会自动进入选手库
 - 「基础数据」页管理战队/选手/赛事；备份直接复制 `data/kpl.db` 文件即可（服务启动时也会自动快照到 `data/backups/`，保留 14 份）
@@ -127,7 +127,7 @@ event_teams(id, event_id, team_id)  赛事参赛战队（无记录=未设置，�
 
 ```
 ├── server/
-│   ├── index.mjs           Express API + 静态托管（meta/teams/players/events/series/games/schedule）
+│   ├── index.mjs           Express API + 静态托管（meta/teams/players/events/series/games/schedule/rosters 大名单/events/:id/teams 参赛战队）
 │   ├── db.mjs              node:sqlite 建库、预置数据、选手吸收
 │   └── adapters.mjs        同步适配器（未使用，遗留）
 ├── scripts/

@@ -93,6 +93,8 @@ app.post('/api/teams', wrap((req, res) => {
 app.put('/api/teams/:id', wrap((req, res) => {
   const { name, short } = req.body || {};
   if (!name?.trim()) return res.status(400).json({ error: '战队名不能为空' });
+  const cur = db.prepare('SELECT id FROM teams WHERE id = ?').get(Number(req.params.id));
+  if (!cur) return res.status(404).json({ error: '战队不存在' });
   db.prepare('UPDATE teams SET name = ?, short = ? WHERE id = ?').run(name.trim(), (short || '').trim(), req.params.id);
   res.json({ ok: true });
 }));
@@ -152,10 +154,23 @@ app.get('/api/series', wrap((req, res) => {
   res.json({ series: loadAllData().series });
 }));
 
+/** 真实日历日期校验：YYYY-MM-DD 且年月日真实存在（2026-02-31 / 空串 / 其他格式都拒绝） */
+function okDate(d) {
+  if (typeof d !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
+  const [y, m, day] = d.split('-').map(Number);
+  const dt = new Date(y, m - 1, day);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === day;
+}
+
+/** 阵容规范化：非数组原样返回（由调用方决定语义）；数组逐项 String+trim。
+ *  判空/判重一律基于规范化结果（'a' 与 'a ' 不再被视为两个身份，外B6） */
+const normRoster = (r) => (Array.isArray(r) ? r.map((x) => String(x ?? '').trim()) : r);
+
 function validateSeriesPayload(p) {
   const need = ['eventId', 'stage', 'date', 'bo', 'team1Id', 'team2Id', 'roster1', 'roster2', 'games'];
   for (const k of need) if (p[k] === undefined || p[k] === null) return `缺少字段 ${k}`;
   if (p.team1Id === p.team2Id) return '两队不能相同';
+  if (!okDate(p.date)) return '日期需为真实存在的 YYYY-MM-DD';
   if (![1, 3, 5, 7].includes(p.bo)) return 'BO 只能为 1/3/5/7';
   // 阵容需 5 名且互不重复（同队重名会让选手归属与整队锁定全部错位，与换人/单局修正端点同口径）
   const rosterErr = (r, label) => (!Array.isArray(r) || r.length !== 5)
@@ -317,14 +332,21 @@ app.put('/api/series/:id', wrap((req, res) => {
   const p = req.body || {};
   const c = db.prepare('SELECT * FROM series WHERE id = ?').get(Number(req.params.id));
   if (!c) return res.status(404).json({ error: '系列赛不存在' });
+  // 显式提供的字段先校验再合并：日期必须真实（外B2）；阵容显式提供但非法 → 400
+  // 而不是静默沿用旧值（外B7；省略字段才表示"保持不变"）；提供的阵容按规范化值落库（外B6）
+  if (p.date !== undefined && !okDate(p.date)) return res.status(400).json({ error: '日期需为真实存在的 YYYY-MM-DD' });
+  const okProvidedRoster = (r) => r === undefined
+    || (Array.isArray(r) && r.length === 5 && normRoster(r).every(Boolean) && new Set(normRoster(r)).size === 5);
+  if (!okProvidedRoster(p.roster1)) return res.status(400).json({ error: '队伍1阵容需为 5 名非空且不重复的选手' });
+  if (!okProvidedRoster(p.roster2)) return res.status(400).json({ error: '队伍2阵容需为 5 名非空且不重复的选手' });
   const next = {
     eventId: p.eventId ?? c.event_id,
     stage: p.stage ?? c.stage,
     date: p.date ?? c.date,
     team1Id: p.team1Id ?? c.team1_id,
     team2Id: p.team2Id ?? c.team2_id,
-    roster1: JSON.stringify(Array.isArray(p.roster1) && p.roster1.length === 5 ? p.roster1 : JSON.parse(c.roster1)),
-    roster2: JSON.stringify(Array.isArray(p.roster2) && p.roster2.length === 5 ? p.roster2 : JSON.parse(c.roster2)),
+    roster1: JSON.stringify(p.roster1 !== undefined ? normRoster(p.roster1) : JSON.parse(c.roster1)),
+    roster2: JSON.stringify(p.roster2 !== undefined ? normRoster(p.roster2) : JSON.parse(c.roster2)),
     note: p.note ?? c.note,
   };
   if (next.team1Id === next.team2Id) return res.status(400).json({ error: '两队不能相同' });
@@ -363,14 +385,17 @@ app.put('/api/games/:id/draft', wrap((req, res) => {
     }
   }
   if (winner !== undefined && !['blue', 'red'].includes(winner)) return res.status(400).json({ error: '胜方不合法' });
+  // 阵容校验/落库统一按规范化值（String+trim 后判空判重，外B6）：undefined=不变、null=沿用系列赛阵容
   const okRoster = (r) => r === undefined || r === null
-    || (Array.isArray(r) && r.length === 5 && r.every((x) => String(x ?? '').trim()) && new Set(r).size === 5);
+    || (Array.isArray(r) && r.length === 5 && normRoster(r).every(Boolean) && new Set(normRoster(r)).size === 5);
   if (!okRoster(roster1) || !okRoster(roster2)) return res.status(400).json({ error: '本局阵容需为 5 名不重复选手' });
+  const roster1n = roster1 === undefined || roster1 === null ? roster1 : normRoster(roster1);
+  const roster2n = roster2 === undefined || roster2 === null ? roster2 : normRoster(roster2);
 
   const cur = db.prepare('SELECT blue_team_is_1, blind, roster1, roster2, winner_side FROM games WHERE id = ?').get(Number(req.params.id));
   if (!cur) return res.status(404).json({ error: '对局不存在' });
   // 更换本局阵容时，新上场的选手（替补）一并吸收进选手库
-  absorbPlayers([...(Array.isArray(roster1) ? roster1 : []), ...(Array.isArray(roster2) ? roster2 : [])]);
+  absorbPlayers([...(Array.isArray(roster1n) ? roster1n : []), ...(Array.isArray(roster2n) ? roster2n : [])]);
   db.prepare(`
     UPDATE games SET draft = ?, blue_team_is_1 = ?, blind = ?, winner_side = ?, roster1 = ?, roster2 = ? WHERE id = ?
   `).run(
@@ -378,8 +403,8 @@ app.put('/api/games/:id/draft', wrap((req, res) => {
     typeof blue1 === 'boolean' ? (blue1 ? 1 : 0) : cur.blue_team_is_1,
     typeof blind === 'boolean' ? (blind ? 1 : 0) : cur.blind,
     winner ?? cur.winner_side,
-    roster1 === undefined ? cur.roster1 : (roster1 === null ? null : JSON.stringify(roster1)),
-    roster2 === undefined ? cur.roster2 : (roster2 === null ? null : JSON.stringify(roster2)),
+    roster1n === undefined ? cur.roster1 : (roster1n === null ? null : JSON.stringify(roster1n)),
+    roster2n === undefined ? cur.roster2 : (roster2n === null ? null : JSON.stringify(roster2n)),
     Number(req.params.id),
   );
   res.json({ ok: true });
